@@ -35,10 +35,67 @@ declare_mlir_python_sources(DataflowSchedulerDialectsPythonExtensions
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT DataflowSchedulerDialectsPythonSources.Dialects
   ROOT_DIR "${PYTHON_ROOT_DIR}"
+  TD_FILE dialects/AgenOps.td
+  SOURCES 
+    dialects/agen.py
+  DIALECT_NAME agen
+  GEN_ENUM_BINDINGS
+)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT DataflowSchedulerDialectsPythonSources.Dialects
+  ROOT_DIR "${PYTHON_ROOT_DIR}"
+  TD_FILE dialects/DataflowOps.td
+  SOURCES 
+    dialects/dataflow.py
+  DIALECT_NAME dataflow
+  GEN_ENUM_BINDINGS
+)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT DataflowSchedulerDialectsPythonSources.Dialects
+  ROOT_DIR "${PYTHON_ROOT_DIR}"
   TD_FILE dialects/KTDFOps.td
   SOURCES 
     dialects/ktdf.py
   DIALECT_NAME ktdf
+  GEN_ENUM_BINDINGS
+)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT DataflowSchedulerDialectsPythonSources.Dialects
+  ROOT_DIR "${PYTHON_ROOT_DIR}"
+  TD_FILE dialects/KTDFArchOps.td
+  SOURCES 
+    dialects/ktdf_arch.py
+  DIALECT_NAME ktdf_arch
+)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT DataflowSchedulerDialectsPythonSources.Dialects
+  ROOT_DIR "${PYTHON_ROOT_DIR}"
+  TD_FILE dialects/KTDFLoweringOps.td
+  SOURCES 
+    dialects/ktdf_lowering.py
+  DIALECT_NAME ktdf_lowering
+)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT DataflowSchedulerDialectsPythonSources.Dialects
+  ROOT_DIR "${PYTHON_ROOT_DIR}"
+  TD_FILE dialects/UniformOps.td
+  SOURCES 
+    dialects/uniform.py
+  DIALECT_NAME uniform
+)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT DataflowSchedulerDialectsPythonSources.Dialects
+  ROOT_DIR "${PYTHON_ROOT_DIR}"
+  TD_FILE dialects/VectorChainOps.td
+  SOURCES 
+    dialects/vectorchain.py
+  DIALECT_NAME vectorchain
   GEN_ENUM_BINDINGS
 )
 

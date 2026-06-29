@@ -8,13 +8,13 @@
 // CHECK-SAME: to %{{.*}} size [64]
 func.func @transfer_with_affine_subscript() {
   %A = memref.alloc() : memref<128x128xf16, "DDR">
-  %fifo = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"ddr-to-sfu", 64xf16>
+  %fifo = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"DDR" -> "SFU", 64xf16>
   %i = arith.constant 1 : index
   %j = arith.constant 2 : index
   ktdf.data_transfer
     from %A[%i + 3, %j * 2] size [1, 64]
     to %fifo size [64]
-    : memref<128x128xf16, "DDR">, !ktdf.fifo.slot<"ddr-to-sfu", 64xf16>
+    : memref<128x128xf16, "DDR">, !ktdf.fifo.slot<"DDR" -> "SFU", 64xf16>
   return
 }
 
@@ -25,12 +25,12 @@ func.func @transfer_with_affine_subscript() {
 // CHECK-SAME: to %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}, 0]
 // CHECK-SAME: size [1, 1, 1, 1]
 func.func @transfer_with_constant_subscript(%a: index, %b: index, %c: index) {
-  %fifo = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"sfu-to-ddr", 64xf16>
+  %fifo = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"SFU" -> "DDR", 64xf16>
   %B = memref.alloc() : memref<12x1x64x64xf16, "DDR">
   ktdf.data_transfer
     from %fifo size [64]
     to %B[%a, %b, %c, 0] size [1, 1, 1, 1]
-    : !ktdf.fifo.slot<"sfu-to-ddr", 64xf16>, memref<12x1x64x64xf16, "DDR">
+    : !ktdf.fifo.slot<"SFU" -> "DDR", 64xf16>, memref<12x1x64x64xf16, "DDR">
   return
 }
 

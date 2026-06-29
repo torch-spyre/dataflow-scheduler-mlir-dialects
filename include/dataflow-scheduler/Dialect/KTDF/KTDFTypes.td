@@ -78,8 +78,10 @@ def KTDF_FifoSlotType : KTDF_Type<"FifoSlot", "fifo.slot"> {
     Syntax:
 
     ```
-    fifo.slot-type ::= `fifo.slot` `<` fifo-type-string `,` shaped-element-type `>`
-    fifo-type-string ::= string-literal
+    fifo.slot-type ::= `fifo.slot` `<` src-attr `->` dest-attr `,` shaped-element-type `>`
+    src-attr ::= component-type | memory-space-attr
+    dest-attr ::= component-type | memory-space-attr
+    memory-space-attr ::= `#` dialect-namespace `.` attr-name `<` ... `>`
     shaped-element-type ::= (num-elements `x`)? element-type
     num-elements ::= `?` | decimal-literal
     element-type ::= type
@@ -87,11 +89,12 @@ def KTDF_FifoSlotType : KTDF_Type<"FifoSlot", "fifo.slot"> {
 
     The fifo.slot type represents a slot in a FIFO buffer used for dataflow
     communication between stages. Each slot has:
-    - A specific type that indicates the source and destination of the dataflow
-      (e.g., "sfu-to-l1su" means data flows from SFU to L1SU)
+    - A source attribute indicating where data flows from (component type or memory space)
+    - A destination attribute indicating where data flows to (component type or memory space)
     - A fifo slot capacity in terms of number of elements that can be static or dynamic
     - An element type that specifies the type of data being transferred
 
+    The source and destination can be component types or memory space attributes.
     The number of elements can be:
     - A static positive integer (e.g., 4, 8, 16, 64)
     - Dynamic, indicated by `?` (similar to memref dimensions)
@@ -100,16 +103,20 @@ def KTDF_FifoSlotType : KTDF_Type<"FifoSlot", "fifo.slot"> {
 
     ```mlir
     // A FIFO slot from L1LU to SFU with 64 f16 elements
-    %slot0 = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"l1lu-to-sfu", 64xf16>
+    %slot0 = ktdf.fifo.allocate() -> !ktdf.fifo.slot<L1LU -> SFU, 64xf16>
     
     // A FIFO slot from SFU to L1SU with some dynamic number of f16 elements
     %size = arith.constant 8 : index
-    %slot1 = ktdf.fifo.allocate(%size) -> !ktdf.fifo.slot<"sfu-to-l1su", ?xf16>
+    %slot1 = ktdf.fifo.allocate(%size) -> !ktdf.fifo.slot<SFU -> L1SU, ?xf16>
+
+    // A FIFO slot from DDR memory space to SFU
+    %slot2 = ktdf.fifo.allocate() -> !ktdf.fifo.slot<#ktdp.spyre_memory_space<DDR> -> SFU, 64xf16>
     ```
   }];
 
   let parameters = (ins
-    "::mlir::StringAttr":$fifoType,
+    "Attribute":$src,
+    "Attribute":$dest,
     "int64_t":$numElements,
     "Type":$elementType
   );

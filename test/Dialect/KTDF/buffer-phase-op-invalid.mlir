@@ -23,13 +23,3 @@ func.func @buffer_phase_no_ivs() {
   return
 }
 
-// -----
-
-// Negative: operand is not an scf.for IV.
-
-func.func @buffer_phase_not_an_iv() {
-  %c0 = arith.constant 0 : index
-  // expected-error@+1 {{operand #0 is not an scf.for induction variable}}
-  %phase = ktdf.buffer_phase(%c0) {num_phases = 2 : i64} : index
-  return
-}

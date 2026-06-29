@@ -33,8 +33,11 @@ def KTDF_Dialect : Dialect {
   let useDefaultTypePrinterParser = 1;
 
   let dependentDialects = [
-    "scf::SCFDialect"
+    "scf::SCFDialect",
+    "arith::ArithDialect"
   ];
+
+  let hasConstantMaterializer = 1;
 
   let extraClassDeclaration = [{
     void registerOps();

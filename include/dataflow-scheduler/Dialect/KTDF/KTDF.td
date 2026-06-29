@@ -43,7 +43,7 @@ def KTDF_FifoAllocateOp : KTDF_Op<"fifo.allocate"> {
   let description = [{
     The `ktdf.fifo.allocate` operation allocates one or more FIFO slots for
     dataflow communication between stages. Each slot has a specific FIFO type
-    (e.g., "l1lu-to-sfu") and size (capacity).
+    (e.g., "L1LU" -> "SFU") and size (capacity).
 
     ## FIFO Slot Semantics
 
@@ -64,8 +64,8 @@ def KTDF_FifoAllocateOp : KTDF_Op<"fifo.allocate"> {
 
     For example:
     ```mlir
-    %slot1, %slot2 = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"l1lu-to-sfu", 2>,
-                                              !ktdf.fifo.slot<"l1lu-to-sfu", 4>
+    %slot1, %slot2 = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"L1LU" -> "SFU", 2>,
+                                              !ktdf.fifo.slot<"L1LU" -> "SFU", 4>
     ```
 
     This allocation means:
@@ -81,7 +81,7 @@ def KTDF_FifoAllocateOp : KTDF_Op<"fifo.allocate"> {
     ## Size Specification
 
     Sizes can be specified either as:
-    1. Static values in the result type (e.g., `!ktdf.fifo.slot<"l1lu-to-sfu", 4>`)
+    1. Static values in the result type (e.g., `!ktdf.fifo.slot<"L1LU" -> "SFU", 4>`)
     2. Dynamic values using SSA operands, with `?` in the result type
 
     When using dynamic sizes, provide one index operand per dynamic slot.
@@ -91,17 +91,17 @@ def KTDF_FifoAllocateOp : KTDF_Op<"fifo.allocate"> {
 
     ```mlir
     // Allocate two FIFO slots with static sizes
-    %slot0, %slot1 = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"l1lu-to-sfu", 1>,
-                                              !ktdf.fifo.slot<"l1lu-to-sfu", 4>
+    %slot0, %slot1 = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"L1LU" -> "SFU", 1>,
+                                              !ktdf.fifo.slot<"L1LU" -> "SFU", 4>
     
     // Allocate a single FIFO slot with dynamic size
     %size = arith.constant 8 : index
-    %slot = ktdf.fifo.allocate(%size) -> !ktdf.fifo.slot<"sfu-to-l1su", ?>
+    %slot = ktdf.fifo.allocate(%size) -> !ktdf.fifo.slot<"SFU" -> "L1SU", ?>
     
     // Mix static and dynamic sizes
     %dyn_size = arith.constant 16 : index
-    %s0, %s1 = ktdf.fifo.allocate(%dyn_size) -> !ktdf.fifo.slot<"l1lu-to-sfu", ?>,
-                                                 !ktdf.fifo.slot<"l1lu-to-sfu", 4>
+    %s0, %s1 = ktdf.fifo.allocate(%dyn_size) -> !ktdf.fifo.slot<"L1LU" -> "SFU", ?>,
+                                                 !ktdf.fifo.slot<"L1LU" -> "SFU", 4>
     ```
   }];
 
@@ -145,13 +145,13 @@ def KTDF_ReadFromFifoOp : KTDF_Op<"read_from_fifo", [
     Example:
     ```mlir
     // Read from a FIFO slot with 64 f16 elements
-    %slot = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"l1lu-to-sfu", 64xf16>
-    %data = ktdf.read_from_fifo %slot : !ktdf.fifo.slot<"l1lu-to-sfu", 64xf16> -> tensor<64xf16>
+    %slot = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"L1LU" -> "SFU", 64xf16>
+    %data = ktdf.read_from_fifo %slot : !ktdf.fifo.slot<"L1LU" -> "SFU", 64xf16> -> tensor<64xf16>
     
     // Read from a FIFO slot with dynamic size
     %size = arith.constant 8 : index
-    %dyn_slot = ktdf.fifo.allocate(%size) -> !ktdf.fifo.slot<"sfu-to-l1su", ?xf16>
-    %dyn_data = ktdf.read_from_fifo %dyn_slot : !ktdf.fifo.slot<"sfu-to-l1su", ?xf16> -> tensor<?xf16>
+    %dyn_slot = ktdf.fifo.allocate(%size) -> !ktdf.fifo.slot<"SFU" -> "L1SU", ?xf16>
+    %dyn_data = ktdf.read_from_fifo %dyn_slot : !ktdf.fifo.slot<"SFU" -> "L1SU", ?xf16> -> tensor<?xf16>
     ```
   }];
 
@@ -201,14 +201,14 @@ def KTDF_WriteToFifoOp : KTDF_Op<"write_to_fifo", [
     ```mlir
     // Write to a FIFO slot with 64 f16 elements
     %data = arith.constant dense<1.0> : tensor<64xf16>
-    %slot = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"l1lu-to-sfu", 64xf16>
-    ktdf.write_to_fifo %data, %slot : tensor<64xf16>, !ktdf.fifo.slot<"l1lu-to-sfu", 64xf16>
+    %slot = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"L1LU" -> "SFU", 64xf16>
+    ktdf.write_to_fifo %data, %slot : tensor<64xf16>, !ktdf.fifo.slot<"L1LU" -> "SFU", 64xf16>
     
     // Write to a FIFO slot with dynamic size
     %size = arith.constant 8 : index
     %dyn_data = tensor.empty(%size) : tensor<?xf16>
-    %dyn_slot = ktdf.fifo.allocate(%size) -> !ktdf.fifo.slot<"sfu-to-l1su", ?xf16>
-    ktdf.write_to_fifo %dyn_data, %dyn_slot : tensor<?xf16>, !ktdf.fifo.slot<"sfu-to-l1su", ?xf16>
+    %dyn_slot = ktdf.fifo.allocate(%size) -> !ktdf.fifo.slot<"SFU" -> "L1SU", ?xf16>
+    ktdf.write_to_fifo %dyn_data, %dyn_slot : tensor<?xf16>, !ktdf.fifo.slot<"SFU" -> "L1SU", ?xf16>
     ```
   }];
 
@@ -389,6 +389,7 @@ def KTDF_TilingDeriveSizeOp : KTDF_Op<"tiling.derive_size", [Pure, SameVariadicO
   let results = (outs Index:$result);
 
   let hasVerifier = 1;
+  let hasFolder = 1;
   let hasCustomAssemblyFormat = 1;
 }
 
@@ -499,7 +500,7 @@ def KTDF_StageOp : KTDF_Op<"stage", [
   let arguments = (ins
     Variadic<KTDF_TokenType>:$depends_in,
     Variadic<KTDF_TokenType>:$depends_out,
-    OptionalAttr<StrArrayAttr>:$applicable_units
+    OptionalAttr<ArrayAttr>:$applicable_units
   );
 
   let regions = (region SizedRegion<1>:$region);
@@ -570,11 +571,11 @@ def KTDF_DataTransferOp : KTDF_Op<"data_transfer", [
 
     // memref to fifo: L1 to FIFO slot
     ktdf.data_transfer from %l1_A[%c0] size [64] to %fifo_slot_a size [64]
-      : memref<64xf16, "L1">, !ktdf.fifo.slot<"l1lu-to-sfu", 64>
+      : memref<64xf16, "L1">, !ktdf.fifo.slot<"L1LU" -> "SFU", 64>
 
     // fifo to memref: FIFO slot to SFU register
     ktdf.data_transfer from %fifo_slot_a to %sfu_A[%c0] size [64]
-      : !ktdf.fifo.slot<"l1lu-to-sfu", 64>, memref<64xf16, "SFU_REG">
+      : !ktdf.fifo.slot<"L1LU" -> "SFU", 64>, memref<64xf16, "SFU_REG">
 
     // memref to memref: L1 to DDR
     ktdf.data_transfer from %l1_C[%m1, %n1] size [1, 64] to %C[%m0 + %m1, %n0 + %n1] size [1, 64]
@@ -782,7 +783,7 @@ def KTDF_PrivateOp : KTDF_Op<"private", [
     ```mlir
     ktdf.pipeline {
       %1:2 = ktdf.private -> (memref<64xf16, "SFU_REG">, !ktdf.token) {
-        %sfu_A = memref.alloc() : memref<64xf16, "SFU_REG">           
+        %sfu_A = memref.alloc() : memref<64xf16, "SFU_REG">
         %t = ktdf.create_token : !ktdf.token
         ktdf.private_yield %sfu_A, %t : memref<64xf16, "SFU_REG">, !ktdf.token
       }
@@ -980,6 +981,7 @@ def KTDF_BufferPhaseOp : KTDF_Op<"buffer_phase", [Pure]> {
   }];
 
   let hasVerifier = 1;
+  let hasFolder = 1;
 }
 
 def KTDF_SelectMemrefOp : KTDF_Op<"select_memref", [
@@ -1018,6 +1020,7 @@ def KTDF_SelectMemrefOp : KTDF_Op<"select_memref", [
   }];
 
   let hasVerifier = 1;
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//

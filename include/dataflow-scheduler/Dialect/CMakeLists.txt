@@ -1,1 +1,7 @@
+add_subdirectory(Agen)
+add_subdirectory(Dataflow)
 add_subdirectory(KTDF)
+add_subdirectory(KTDFArch)
+add_subdirectory(KTDFLowering)
+add_subdirectory(Uniform)
+add_subdirectory(VectorChain)

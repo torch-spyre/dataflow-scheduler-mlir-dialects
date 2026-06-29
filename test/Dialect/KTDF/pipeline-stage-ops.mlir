@@ -47,8 +47,8 @@
 // CHECK-NEXT:     %[[CREATE_TOKEN_1:.*]] = ktdf.create_token : !ktdf.token
 // CHECK-NEXT:     ktdf.pipeline {
 // CHECK-NEXT:       ktdf.stage depends_in(none) depends_out(%[[CREATE_TOKEN_0]]) {
-// CHECK-NEXT:         %[[FIFO_0:.*]]:2 = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"l1lu-to-sfu", 1xf16>, !ktdf.fifo.slot<"l1lu-to-sfu", 4xf16>
-// CHECK-NEXT:         "test.op"(%[[FIFO_0]]#0) : (!ktdf.fifo.slot<"l1lu-to-sfu", 1xf16>) -> ()
+// CHECK-NEXT:         %[[FIFO_0:.*]]:2 = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"L1LU" -> "SFU", 1xf16>, !ktdf.fifo.slot<"L1LU" -> "SFU", 4xf16>
+// CHECK-NEXT:         "test.op"(%[[FIFO_0]]#0) : (!ktdf.fifo.slot<"L1LU" -> "SFU", 1xf16>) -> ()
 // CHECK-NEXT:         ktdf.pipeline {
 // CHECK-NEXT:           ktdf.stage depends_in(none) depends_out(%[[CREATE_TOKEN_1]]) {
 // CHECK-NEXT:             %[[VAL_0:.*]] = "test.op"() : () -> !ktdf.token
@@ -114,8 +114,8 @@ module {
     
     ktdf.pipeline {
       ktdf.stage depends_in(none) depends_out(%token_outer) {
-        %slot0, %slot1 = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"l1lu-to-sfu", 1xf16>, !ktdf.fifo.slot<"l1lu-to-sfu", 4xf16>
-        "test.op"(%slot0) : (!ktdf.fifo.slot<"l1lu-to-sfu", 1xf16>) -> ()
+        %slot0, %slot1 = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"L1LU" -> "SFU", 1xf16>, !ktdf.fifo.slot<"L1LU" -> "SFU", 4xf16>
+        "test.op"(%slot0) : (!ktdf.fifo.slot<"L1LU" -> "SFU", 1xf16>) -> ()
         ktdf.pipeline {
           ktdf.stage depends_in(none) depends_out(%token_inner) {
             %token = "test.op"() : () -> !ktdf.token

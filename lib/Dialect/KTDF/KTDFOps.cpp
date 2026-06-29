@@ -79,7 +79,6 @@ auto parseCellOrSlot(OpAsmParser& parser,
 void printCellOrSlot(OpAsmPrinter& printer, Operation* op, Value operand,
                      OperandRange indices, AffineMapAttr map,
                      OperandRange sizes, DenseI64ArrayAttr static_sizes) {
-  std::ignore = op;
   printer << operand;
 
   if (isa<MemRefType>(operand.getType())) {
@@ -113,9 +112,8 @@ auto parseBracketPairList(
   return success();
 }
 
-void printBracketPairList(OpAsmPrinter& printer, Operation* op,
+void printBracketPairList(OpAsmPrinter& printer, Operation* /*op*/,
                           ValueRange first, ValueRange second) {
-  std::ignore = op;
   llvm::interleaveComma(llvm::zip_equal(first, second), printer,
                         [&](auto pair) {
                           printer << "[" << std::get<0>(pair) << " : "
@@ -176,6 +174,38 @@ auto TilingDeriveSizeOp::verify() -> LogicalResult {
     return emitOpError("must have at least one [iv : tile_size] pair");
   }
   return success();
+}
+
+auto TilingDeriveSizeOp::fold(FoldAdaptor adaptor) -> OpFoldResult {
+  // Only the single-level case is foldable (and is the only case lowered).
+  if (getIvs().size() != 1) {
+    return {};
+  }
+
+  // All three operands must be constant to fold to a constant.
+  auto iv_attr = llvm::dyn_cast_or_null<mlir::IntegerAttr>(adaptor.getIvs()[0]);
+  auto ts_attr =
+      llvm::dyn_cast_or_null<mlir::IntegerAttr>(adaptor.getTileSizes()[0]);
+  auto total_attr =
+      llvm::dyn_cast_or_null<mlir::IntegerAttr>(adaptor.getTotalSize());
+  if (!iv_attr || !ts_attr || !total_attr) {
+    return {};
+  }
+
+  // Only fold the single-trip-loop case: a folded enclosing loop replaced its
+  // induction variable with the loop's lower bound, 0. For any other constant
+  // iv (e.g. an unrolled multi-trip loop) min(tile_size, total_size) would be
+  // wrong, so leave the op untouched.
+  if (iv_attr.getInt() != 0) {
+    return {};
+  }
+
+  // Single-trip inner trip count is min(tile_size, total_size).
+  const int64_t ts = ts_attr.getInt();
+  const int64_t total = total_attr.getInt();
+  const int64_t result = ts < total ? ts : total;
+
+  return mlir::IntegerAttr::get(mlir::IndexType::get(getContext()), result);
 }
 
 //===----------------------------------------------------------------------===//
@@ -770,28 +800,41 @@ auto BufferPhaseOp::verify() -> LogicalResult {
   if (getIvs().empty()) {
     return emitOpError("requires at least one induction variable operand");
   }
+  // NOTE: We intentionally do NOT verify that each operand is an scf.for
+  // induction variable. Canonicalization can legitimately fold a single-trip
+  // enclosing loop away, replacing its IV operand with a constant; the
+  // BufferPhaseOp folder drops such constant operands. Enforcing the IV
+  // invariant here (by walking def-use chains) both violates MLIR verifier
+  // guidelines and rejects valid intermediate IR. The consuming lowering pass
+  // (BufferPhaseLowering) remains the enforcement point for the IV invariant.
+  return success();
+}
 
-  // FIXME: Following def-use chains in verifiers is not allowed as per the
-  //        MLIR guidelines. This should become a match failure in the affected
-  //        passes. In addition, a legalization pass could be added.
-
-  // Each operand must be the induction variable of an enclosing scf.for.
-  for (auto& iv : getIvsMutable()) {
-    const auto block_arg = dyn_cast<BlockArgument>(iv.get());
-    if (!block_arg) {
-      return emitOpError("operand #")
-             << iv.getOperandNumber()
-             << " is not an scf.for induction variable";
-    }
-    auto for_op = dyn_cast<scf::ForOp>(block_arg.getOwner()->getParentOp());
-    if (!for_op || for_op.getInductionVar() != iv.get()) {
-      return emitOpError("operand #")
-             << iv.getOperandNumber()
-             << " is not an scf.for induction variable";
+auto BufferPhaseOp::fold(FoldAdaptor adaptor) -> OpFoldResult {
+  // Partition operands into constants (folded-away single-trip loops) and
+  // non-constants (live IVs). adaptor.getIvs() yields a constant Attribute for
+  // each operand that is a constant, or null otherwise.
+  llvm::SmallVector<mlir::Value> kept;
+  for (auto [value, attr] : llvm::zip(getIvs(), adaptor.getIvs())) {
+    if (!attr) {
+      kept.push_back(value);
     }
   }
 
-  return success();
+  // No constants: nothing to fold.
+  if (kept.size() == getIvs().size()) {
+    return {};
+  }
+
+  // All operands constant: the phase no longer varies, fold to index 0.
+  if (kept.empty()) {
+    return mlir::IntegerAttr::get(mlir::IndexType::get(getContext()), 0);
+  }
+
+  // Some constants: drop them in place, keep the live IVs. Returning the
+  // op's own result signals an in-place operand mutation to the folder driver.
+  getIvsMutable().assign(kept);
+  return getResult();
 }
 
 //===----------------------------------------------------------------------===//
@@ -805,22 +848,33 @@ auto SelectMemrefOp::verify() -> LogicalResult {
            << candidates.size();
   }
 
-  // FIXME: Following def-use chains in verifiers is not allowed as per the
-  //        MLIR guidelines. This should become a match failure in the affected
-  //        passes. In addition, a legalization pass could be added.
-
+  // NOTE: We intentionally do NOT verify that the phase operand originates from
+  // a ktdf.buffer_phase op. Canonicalization (e.g. BufferPhaseOp::fold) can
+  // legitimately replace the phase with a constant; enforcing the source-op
+  // invariant here rejects valid intermediate IR. The consuming lowering pass
+  // (BufferPhaseLowering) remains the enforcement point for that invariant.
   // The phase operand must come from a ktdf.buffer_phase whose num_phases
   // equals the number of candidates.
   auto phase_op = getPhase().getDefiningOp<BufferPhaseOp>();
-  if (!phase_op) {
-    return emitOpError(
-        "phase operand must be defined by a ktdf.buffer_phase op");
-  }
-  if (phase_op.getNumPhases() != candidates.size()) {
+  if (phase_op && phase_op.getNumPhases() != candidates.size()) {
     return emitOpError("phase op num_phases (")
            << phase_op.getNumPhases() << ") must equal candidate count ("
            << candidates.size() << ")";
   }
 
   return success();
+}
+
+auto SelectMemrefOp::fold(FoldAdaptor adaptor) -> OpFoldResult {
+  // A constant phase selects a fixed candidate.
+  auto phase_attr =
+      llvm::dyn_cast_or_null<mlir::IntegerAttr>(adaptor.getPhase());
+  if (!phase_attr) {
+    return {};
+  }
+  const int64_t phase = phase_attr.getInt();
+  if (phase < 0 || phase >= static_cast<int64_t>(getCandidates().size())) {
+    return {};
+  }
+  return getCandidates()[phase];
 }

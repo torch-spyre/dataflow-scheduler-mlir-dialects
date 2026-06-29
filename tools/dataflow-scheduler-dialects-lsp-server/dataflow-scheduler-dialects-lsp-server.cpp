@@ -25,13 +25,22 @@
 #include <mlir/Tools/mlir-lsp-server/MlirLspServerMain.h>
 #include <mlir/Tools/mlir-opt/MlirOptMain.h>
 
+#include "dataflow-scheduler/Dialect/Agen/Agen.h"
+#include "dataflow-scheduler/Dialect/Dataflow/Dataflow.h"
 #include "dataflow-scheduler/Dialect/KTDF/KTDFDialect.h"
+#include "dataflow-scheduler/Dialect/KTDFArch/KTDFArchDialect.h"
+#include "dataflow-scheduler/Dialect/KTDFLowering/KTDFLoweringDialect.h"
+#include "dataflow-scheduler/Dialect/Uniform/Uniform.h"
+#include "dataflow-scheduler/Dialect/VectorChain/VectorChain.h"
 
 using namespace mlir;
 
 auto main(int argc, char** argv) -> int {
   DialectRegistry registry;
-  registry.insert<ktdf::KTDFDialect>();
+  registry
+      .insert<agen::AgenDialect, dataflow::DataflowDialect, ktdf::KTDFDialect,
+              ktdf_arch::KTDFArchDialect, ktdf_lowering::KTDFLoweringDialect,
+              uniform::UniformDialect, vectorchain::VectorChainDialect>();
   registerAllDialects(registry);
   registerAllExtensions(registry);
 

@@ -1,0 +1,8 @@
+add_dataflow_scheduler_dialects_dialect(Dataflow dataflow)
+add_dataflow_scheduler_dialects_doc(Dataflow DataflowDialect Dialects/ -gen-dialect-doc -dialect=dataflow)
+
+set(LLVM_TARGET_DEFINITIONS DataflowEnums.td)
+mlir_tablegen(DataflowEnums.h.inc -gen-enum-decls)
+mlir_tablegen(DataflowEnums.cpp.inc -gen-enum-defs)
+add_dataflow_scheduler_dialects_tablegen_target(DataflowSchedulerDialectsDataflowEnumsIncGen)
+add_dependencies(DataflowSchedulerDialectsDataflowIncGen DataflowSchedulerDialectsDataflowEnumsIncGen)

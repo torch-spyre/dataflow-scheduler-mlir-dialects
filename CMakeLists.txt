@@ -53,6 +53,7 @@ endif()
 
 option(DataflowSchedulerDialects_ENABLE_PYTHON_BINDINGS "Build Python bindings" NO)
 option(DataflowSchedulerDialects_BUILD_TOOLS "Build tool executables" ${PROJECT_IS_TOP_LEVEL})
+option(DataflowSchedulerDialects_ENABLE_TESTS "Enable unit tests" NO)
 
 #
 # Umbrella targets
@@ -119,6 +120,9 @@ if(DataflowSchedulerDialects_ENABLE_PYTHON_BINDINGS)
 endif()
 add_subdirectory(test)
 add_subdirectory(tools)
+if(DataflowSchedulerDialects_ENABLE_TESTS)
+  add_subdirectory(unittest)
+endif()
 
 # Install instructions, these must come last so that all properties are set.
 add_subdirectory(cmake)

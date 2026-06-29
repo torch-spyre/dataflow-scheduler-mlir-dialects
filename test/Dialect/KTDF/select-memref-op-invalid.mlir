@@ -39,21 +39,6 @@ func.func @select_memref_mismatched_types() {
 
 // -----
 
-// Negative: phase not from buffer_phase.
-
-func.func @select_memref_phase_from_constant() {
-  %c0 = arith.constant 0 : index
-  %x0 = memref.alloc() : memref<64xf16, "L1">
-  %x1 = memref.alloc() : memref<64xf16, "L1">
-  // expected-error@+1 {{phase operand must be defined by a ktdf.buffer_phase op}}
-  %sel = ktdf.select_memref %c0[%x0, %x1] : memref<64xf16, "L1">
-  memref.dealloc %x0 : memref<64xf16, "L1">
-  memref.dealloc %x1 : memref<64xf16, "L1">
-  return
-}
-
-// -----
-
 // Negative: num_phases mismatches candidate count.
 
 func.func @select_memref_num_phases_mismatch() {

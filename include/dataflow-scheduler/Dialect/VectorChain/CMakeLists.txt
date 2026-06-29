@@ -1,0 +1,8 @@
+add_dataflow_scheduler_dialects_dialect(VectorChain vectorchain)
+add_dataflow_scheduler_dialects_doc(VectorChain VectorChainDialect Dialects/ -gen-dialect-doc -dialect=vectorchain)
+
+set(LLVM_TARGET_DEFINITIONS VectorChainEnums.td)
+mlir_tablegen(VectorChainEnums.h.inc -gen-enum-decls)
+mlir_tablegen(VectorChainEnums.cpp.inc -gen-enum-defs)
+add_dataflow_scheduler_dialects_tablegen_target(DataflowSchedulerDialectsVectorChainEnumsIncGen)
+add_dependencies(DataflowSchedulerDialectsVectorChainIncGen DataflowSchedulerDialectsVectorChainEnumsIncGen)

@@ -20,6 +20,9 @@ add_mlir_python_common_capi_library(DataflowSchedulerDialectsPythonCAPI
   DECLARED_SOURCES ${_source_components}
 )
 
+# FIXME: It is unclear why this work-around is needed on some platforms.
+set_target_properties(DataflowSchedulerDialectsPythonCAPI PROPERTIES LINKER_LANGUAGE CXX)
+
 add_mlir_python_modules(DataflowSchedulerDialectsPythonModules
   ROOT_PREFIX "${PYTHON_PACKAGE_DIR}"
   INSTALL_PREFIX "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"

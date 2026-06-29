@@ -22,4 +22,9 @@
 import mlir_scheduler
 import mlir_scheduler.ir
 
+import mlir_scheduler.dialects.agen
+import mlir_scheduler.dialects.dataflow
 import mlir_scheduler.dialects.ktdf
+import mlir_scheduler.dialects.ktdf_arch
+import mlir_scheduler.dialects.uniform
+import mlir_scheduler.dialects.vectorchain

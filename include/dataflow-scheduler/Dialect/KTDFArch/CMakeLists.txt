@@ -1,0 +1,9 @@
+add_dataflow_scheduler_dialects_dialect(KTDFArch ktdf_arch)
+add_dataflow_scheduler_dialects_doc(KTDFArch KTDFArchDialect Dialects/ -gen-dialect-doc -dialect=ktdf_arch)
+
+set(LLVM_TARGET_DEFINITIONS KTDFArchInterfaces.td)
+mlir_tablegen(KTDFArchOpInterfaces.h.inc -gen-op-interface-decls)
+mlir_tablegen(KTDFArchOpInterfaces.cpp.inc -gen-op-interface-defs)
+add_dataflow_scheduler_dialects_tablegen_target(DataflowSchedulerDialectsKTDFArchInterfacesIncGen)
+add_dataflow_scheduler_dialects_doc(KTDFArchInterfaces KTDFArchOpInterfaces Dialects/ -gen-op-interface-docs)
+add_dependencies(DataflowSchedulerDialectsKTDFArchIncGen DataflowSchedulerDialectsKTDFArchInterfacesIncGen)

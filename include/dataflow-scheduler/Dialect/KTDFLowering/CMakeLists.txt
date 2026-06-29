@@ -1,0 +1,2 @@
+add_dataflow_scheduler_dialects_dialect(KTDFLowering ktdf_lowering)
+add_dataflow_scheduler_dialects_doc(KTDFLowering KTDFLoweringDialect Dialects/ -gen-dialect-doc -dialect=ktdf_lowering)

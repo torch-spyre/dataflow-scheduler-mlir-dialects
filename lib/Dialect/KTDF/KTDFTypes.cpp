@@ -59,7 +59,9 @@ void KTDFDialect::registerTypes() {
 
 void FifoSlotType::print(AsmPrinter& printer) const {
   printer << "<";
-  printer.printString(getFifoType().getValue());
+  printer.printAttribute(this->getSrc());
+  printer << " -> ";
+  printer.printAttribute(this->getDest());
   printer << ", ";
   if (ShapedType::isDynamic(getNumElements())) {
     printer << "?";
@@ -74,36 +76,32 @@ void FifoSlotType::print(AsmPrinter& printer) const {
 Type FifoSlotType::parse(AsmParser& parser) {
   if (parser.parseLess()) return Type();
 
-  // Parse the FIFO connection type as a string keyword.
-  std::string fifo_type_str;
-  if (parser.parseKeywordOrString(&fifo_type_str)) return Type();
+  Attribute src_attr;
+  if (parser.parseAttribute(src_attr)) return Type();
+
+  if (parser.parseArrow()) return Type();
+
+  Attribute dest_attr;
+  if (parser.parseAttribute(dest_attr)) return Type();
 
   if (parser.parseComma()) return Type();
 
-  // Parse dimension (NxType or ?xType)
   int64_t num_elements;
   Type element_type;
 
-  // Try to parse '?' for dynamic dimension
   if (succeeded(parser.parseOptionalQuestion())) {
     num_elements = ShapedType::kDynamic;
   } else {
-    // Parse static dimension
     if (parser.parseInteger(num_elements)) return Type();
   }
 
-  // Parse 'x' - use parseXInDimensionList which handles 'x' in dimension
-  // context
   if (parser.parseXInDimensionList()) return Type();
 
-  // Parse element type
   if (parser.parseType(element_type)) return Type();
 
   if (parser.parseGreater()) return Type();
 
   return FifoSlotType::getChecked(
       [&] { return parser.emitError(parser.getCurrentLocation()); },
-      parser.getContext(),
-      StringAttr::get(parser.getContext(), fifo_type_str), num_elements,
-      element_type);
+      parser.getContext(), src_attr, dest_attr, num_elements, element_type);
 }

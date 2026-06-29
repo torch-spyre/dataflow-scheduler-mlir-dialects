@@ -56,12 +56,12 @@ func.func @test_fifo_constant_sizes() {
   %c0 = arith.constant 0 : index
   
   %l1_A = memref.alloc() : memref<64xf16, "L1">
-  %fifo_slot = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"l1lu-to-sfu", 64xf16>
+  %fifo_slot = ktdf.fifo.allocate() -> !ktdf.fifo.slot<"L1LU" -> "SFU", 64xf16>
   
   // FIFO transfer with constant size
   // CHECK: ktdf.data_transfer from {{.*}} size [64] to {{.*}} size [64]
   ktdf.data_transfer from %l1_A[%c0] size [64] to %fifo_slot size [64]
-    : memref<64xf16, "L1">, !ktdf.fifo.slot<"l1lu-to-sfu", 64xf16>
+    : memref<64xf16, "L1">, !ktdf.fifo.slot<"L1LU" -> "SFU", 64xf16>
   
   return
 }
