@@ -17,7 +17,13 @@ This project provides the dialect definitions for dataflow-based schedulers. Cur
 
 |           Name | Description                                                                                                                           |
 | -------------: |:--------------------------------------------------------------------------------------------------------------------------------------|
-| `ktdf`         | The Kernel Tile Dataflow (KTDF) dialect, which adds a dataflow pipeline abstraction suitable for scheduling to dataflow accelerators. | 
+| `ktdf`         | The Kernel Tile Dataflow (KTDF) dialect, which adds a dataflow pipeline abstraction suitable for scheduling to dataflow accelerators. |
+| `ktdf_arch`    | Models dataflow devices and their architecture as a graph of memory and execution-unit resources connected by links, for scheduling dataflow applications. |
+| `ktdf_lowering`| Temporary operations used during the multi-phase lowering from KTIR (the `ktdf` dialect) to Dataflow IR. |
+| `dataflow`     | The Dataflow IR dialect: program units, inter-unit communication (`send`/`receive`), explicit synchronization, and logical memory views. |
+| `agen`         | Address-generation memory operations — vector loads/stores and composite load-and-store transfers driven by affine maps and sets. |
+| `vectorchain`  | Advanced vector arithmetic — element-wise binary ops with reduction, and shuffle/selection of vector elements. |
+| `uniform`      | Uniformization operations that capture constant differences across per-core programs of a unit (immutable mappings and queries). |
 
 ## Prerequisites
 
