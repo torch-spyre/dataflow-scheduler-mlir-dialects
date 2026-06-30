@@ -11,9 +11,6 @@ add_dataflow_scheduler_dialects_tool(dataflow-scheduler-dialects-opt
   SUPPORT_PLUGINS
 )
 target_link_libraries(dataflow-scheduler-dialects-opt PRIVATE
-  # NOTE: This is _not_ part of libMLIR.so!
-  MLIRMlirOptMain
-
   ${_dialect_libs}
   ${_extension_libs}
   ${_conversion_libs}
