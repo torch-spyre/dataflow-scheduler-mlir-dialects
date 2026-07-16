@@ -33,6 +33,10 @@ target_compile_definitions(dataflow-scheduler-dialects-tests PRIVATE
 target_compile_options(dataflow-scheduler-dialects-tests PRIVATE
   -fno-rtti
 )
+mlir_target_link_libraries(dataflow-scheduler-dialects-tests
+  MLIRPass
+  MLIRFuncDialect
+)
 
 doctest_discover_tests(dataflow-scheduler-dialects-tests)
 

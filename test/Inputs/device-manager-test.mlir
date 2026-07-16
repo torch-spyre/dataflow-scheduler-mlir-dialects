@@ -9,3 +9,7 @@ ktdf_arch.device @device attributes {version = 2, overridable = 2} import("devic
 ktdf_arch.device @invalid_device import("device-invalid.mlir")
 
 ktdf_arch.device @recursive_device import("device-manager-test.mlir")
+
+func.func private @test_1()
+
+func.func private @test_2()
