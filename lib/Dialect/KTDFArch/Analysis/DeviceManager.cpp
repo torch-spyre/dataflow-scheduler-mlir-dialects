@@ -149,64 +149,72 @@ Device::~Device() {
   }
 }
 
-Device::Device(DeviceOp declaration, DeviceOp definition)
-    : DeviceOp(definition), declaration_(declaration) {
-  assert(definition && declaration);
-  assert(!definition.isImported());
-  assert(definition.getNameAttr() == declaration.getNameAttr());
-}
-
 //===----------------------------------------------------------------------===//
 // DeviceManager
 //===----------------------------------------------------------------------===//
 
-DeviceManager::DeviceManager(Operation* op, AnalysisManager& analyses)
-    : root_(op), analyses_(analyses) {
-  assert(op->getNumRegions() == 1);
+auto DeviceManager::getOrImportDevice() -> const Device* {
+  {
+    // Return the only imported device, if any.
+    const auto it = map_.begin();
+    if (it != map_.end()) {
+      if (std::next(it) != map_.end()) {
+        return nullptr;
+      }
 
-  for (auto declaration : op->getRegion(0).getOps<DeviceOp>()) {
-    declarations_[declaration.getNameAttr()] = declaration;
+      return &it->second;
+    }
   }
-}
 
-auto DeviceManager::getOrImportDevice() -> Device* {
-  // Ensure there is just one declaration.
-  const auto decl_it = declarations_.begin();
-  if (decl_it == declarations_.end() ||
-      std::next(decl_it) != declarations_.end()) {
+  // Find exactly one declaration in the root.
+  if (root_->getNumRegions() != 1) {
+    return nullptr;
+  }
+  const auto decls = root_->getRegion(0).getOps<DeviceOp>();
+  if (decls.empty() || std::next(decls.begin()) != decls.end()) {
     return nullptr;
   }
 
-  return getOrImportDeviceImpl(decl_it->second);
+  // Import that declaration, which will put it into the map to be found again.
+  return &getOrImportDevice(*decls.begin());
 }
 
-auto DeviceManager::getOrImportDevice(StringAttr name) -> Device* {
-  // Try to find a matching declaration.
-  auto declaration = declarations_.lookup(name);
-  if (!declaration) {
-    return nullptr;
+auto DeviceManager::getOrImportDevice(StringAttr name) -> const Device* {
+  // Try to return the imported device.
+  const auto it = map_.find(name);
+  if (it != map_.end()) {
+    return &it->second;
   }
 
-  return getOrImportDeviceImpl(declaration);
-}
-
-auto DeviceManager::getOrImportDevice(DeviceOp declaration) -> Device* {
-  // Device must be managed by this instance.
-  if (!root_->isAncestor(declaration)) {
+  // Try to import the matching declaration.
+  if (root_->getNumRegions() != 1) {
     return nullptr;
   }
+  for (auto decl : root_->getRegion(0).getOps<DeviceOp>()) {
+    if (decl.getNameAttr() == name) {
+      return &getOrImportDevice(decl);
+    }
+  }
 
-  return getOrImportDeviceImpl(declaration);
+  return nullptr;
 }
 
-auto DeviceManager::getOrImportDeviceImpl(DeviceOp declaration) -> Device* {
-  auto& device = analyses_.getChildAnalysis<Device>(declaration);
-  return device ? &device : nullptr;
+auto DeviceManager::getOrImportDevice(DeviceOp declaration) -> const Device& {
+  assert(root_->isAncestor(declaration));
+
+  return map_.try_emplace(declaration.getNameAttr(), declaration).first->second;
 }
 
 //===----------------------------------------------------------------------===//
 // DeviceView
 //===----------------------------------------------------------------------===//
 
-DeviceView::DeviceView(DeviceOp /*declaration*/, AnalysisManager& analyses)
-    : device_(analyses.getAnalysis<Device, DeviceOp>()) {}
+DeviceView::DeviceView(DeviceOp declaration, DeviceManager& devices) {
+  device_ = &devices.getOrImportDevice(declaration);
+}
+
+DeviceView::DeviceView(DeviceOp declaration, AnalysisManager& analyses)
+    : DeviceView(declaration, analyses
+                                  .getCachedParentAnalysis<DeviceManager>(
+                                      declaration->getParentOp())
+                                  ->get()) {}

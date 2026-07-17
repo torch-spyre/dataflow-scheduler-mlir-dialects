@@ -33,6 +33,7 @@
 #ifndef DATAFLOW_SCHEDULER_DIALECT_KTDFARCH_ANALYSIS_DEVICEMANAGER_H_
 #define DATAFLOW_SCHEDULER_DIALECT_KTDFARCH_ANALYSIS_DEVICEMANAGER_H_
 
+#include <llvm/ADT/STLExtras.h>
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/Pass/AnalysisManager.h>
 
@@ -50,6 +51,8 @@ namespace mlir::ktdf_arch {
 /// Devices can be cached as an analysis on the declaring DeviceOp.
 class Device : private DeviceOp {
  public:
+  /// Initializes a @c nullptr like device.
+  /*implicit*/ Device() = default;
   /// Gets or imports the Device for @p declaration .
   ///
   /// If any error occurs, a diagnostic is raised at the declaration. If an
@@ -58,8 +61,9 @@ class Device : private DeviceOp {
   /// Device will be contextually convertible to `false`.
   explicit Device(DeviceOp declaration);
 
-  // Devices are neither movable nor copyable.
-  Device(Device&& move) = delete;
+  /*implicit*/ Device(Device&& move) : Device() { swap(*this, move); }
+
+  /// Devices are not assignable or copyable.
   auto operator=(Device&& move) -> Device& = delete;
   Device(const Device&) = delete;
   auto operator=(const Device&) -> Device& = delete;
@@ -67,18 +71,21 @@ class Device : private DeviceOp {
   // Destroys the Device, freeing its imported definition (if any).
   ~Device();
 
-  static auto isInvalidated(const AnalysisManager::PreservedAnalyses& /*pa*/)
-      -> bool {
-    // Devices within a module and their import locations must remain immutable,
-    // and therefore the cached instances are always preserved.
-    return false;
+  [[nodiscard]] auto getBody() const -> Block* {
+    return getDefinition().getBody();
   }
-
-  using DeviceOp::getBody;
-  using DeviceOp::getBodyRegion;
-  using DeviceOp::getName;
-  using DeviceOp::getNameAttr;
-  using DeviceOp::getVersion;
+  [[nodiscard]] auto getBodyRegion() const -> Region& {
+    return getDefinition().getBodyRegion();
+  }
+  [[nodiscard]] auto getName() const -> StringRef {
+    return getDeclaration().getName();
+  }
+  [[nodiscard]] auto getNameAttr() const -> StringAttr {
+    return getDeclaration().getNameAttr();
+  }
+  [[nodiscard]] auto getVersion() const -> std::optional<int64_t> {
+    return getDefinition().getVersion();
+  }
 
   [[nodiscard]] auto getContext() const -> MLIRContext* {
     return getDeclaration()->getContext();
@@ -106,7 +113,6 @@ class Device : private DeviceOp {
   }
 
   explicit operator bool() const { return static_cast<bool>(getDefinition()); }
-  [[nodiscard]] auto operator*() -> DeviceOp { return declaration_; }
 
   friend void swap(Device& lhs, Device& rhs) {
     using std::swap;
@@ -115,16 +121,16 @@ class Device : private DeviceOp {
   }
 
  private:
-  explicit Device(DeviceOp declaration, DeviceOp definition);
-
   DeviceOp declaration_;
 };
 
 /// Manages cached access to defined or imported devices.
 class DeviceManager {
+  using map_type = llvm::DenseMap<StringAttr, Device>;
+
  public:
   /// Creates a DeviceManager for all devices nested directly below @p op .
-  explicit DeviceManager(Operation* op, AnalysisManager& analyses);
+  explicit DeviceManager(Operation* root) : root_(root) {}
 
   // DeviceManagers are neither movable nor copyable.
   DeviceManager(const DeviceManager&) = delete;
@@ -135,22 +141,31 @@ class DeviceManager {
   /// Destroys the DeviceManager and all its imported devices.
   ~DeviceManager() = default;
 
+  static auto isInvalidated(const AnalysisManager::PreservedAnalyses& /*pa*/)
+      -> bool {
+    // Devices within a module and their import locations must remain immutable,
+    // and therefore the cached instances are always preserved.
+    return false;
+  }
+
   /// Gets or imports the only Device in the current scope.
   ///
   /// See getOrImportDevice(DeviceOp) for more information on importing.
   ///
   /// @retval Device    Only device in the current scope.
-  /// @retval nullptr   No or more than one device found, or importing failed.
-  auto getOrImportDevice() -> Device*;
+  /// @retval false     Importing failed.
+  /// @retval nullptr   No or more than one device found.
+  auto getOrImportDevice() -> const Device*;
   /// Gets the Device for @p name , importing it if necessary.
   ///
   /// See getOrImportDevice(DeviceOp) for more information on importing.
   ///
   /// @retval Device    Device with @p name .
+  /// @retval false     Importing failed.
   /// @retval nullptr   No such device found, or importing failed.
-  auto getOrImportDevice(StringAttr name) -> Device*;
+  auto getOrImportDevice(StringAttr name) -> const Device*;
   /// @copydoc getOrImportDevice(StringAttr)
-  auto getOrImportDevice(StringRef name) -> Device* {
+  auto getOrImportDevice(StringRef name) -> const Device* {
     return getOrImportDevice(StringAttr::get(root_->getContext(), name));
   }
   /// Gets or imports the Device referenced by @p declaration .
@@ -158,23 +173,45 @@ class DeviceManager {
   /// The first time an imported device is queried via the DeviceManager, it is
   /// imported from the file, linked to the manager's lifetime and cached.
   ///
-  /// See Device::getOrImport(DeviceOp) for more information on importing.
+  /// See Device(DeviceOp) for more information on importing.
   ///
   /// @retval Decive    Device for @p declaration .
-  /// @retval nullptr   Importing failed or invalid @p declaration .
-  auto getOrImportDevice(DeviceOp declaration) -> Device*;
+  /// @retval false     Importing failed.
+  auto getOrImportDevice(DeviceOp declaration) -> const Device&;
+
+  //===--------------------------------------------------------------------===//
+  // Container Interface
+  //===--------------------------------------------------------------------===//
+
+  using value_type = Device;
+  using size_type = map_type::size_type;
+
+  struct iterator
+      : llvm::mapped_iterator_base<iterator, map_type::const_iterator,
+                                   const Device&> {
+    using llvm::mapped_iterator_base<iterator, map_type::const_iterator,
+                                     const Device&>::mapped_iterator_base;
+
+    static auto mapElement(const map_type::value_type& pair) -> const Device& {
+      return pair.second;
+    }
+  };
+
+  [[nodiscard]] auto empty() const -> bool { return map_.empty(); }
+  [[nodiscard]] auto size() const -> size_type { return map_.size(); }
+
+  [[nodiscard]] auto begin() const -> iterator { return map_.begin(); }
+  [[nodiscard]] auto end() const -> iterator { return map_.end(); }
 
  private:
-  auto getOrImportDeviceImpl(DeviceOp declaration) -> Device*;
-
   Operation* root_;
-  AnalysisManager analyses_;
-  DenseMap<StringAttr, DeviceOp> declarations_;
+  map_type map_;
 };
 
 /// Base class for implementing views over Devices.
 class DeviceView {
  public:
+  explicit DeviceView(DeviceOp declaration, DeviceManager& devices);
   explicit DeviceView(DeviceOp declaration, AnalysisManager& analyses);
 
   static auto isInvalidated(const AnalysisManager::PreservedAnalyses& /*pa*/)
@@ -185,12 +222,12 @@ class DeviceView {
   }
 
   [[nodiscard]] auto getContext() const -> MLIRContext* {
-    return device_.getDeclaration()->getContext();
+    return device_->getDeclaration()->getContext();
   }
-  [[nodiscard]] auto getDevice() const -> Device& { return device_; }
+  [[nodiscard]] auto getDevice() const -> const Device& { return *device_; }
 
  private:
-  Device& device_;
+  const Device* device_;
 };
 
 }  // namespace mlir::ktdf_arch

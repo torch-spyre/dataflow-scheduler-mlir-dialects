@@ -2,7 +2,7 @@ ktdf_arch.device @inline_device {
   exec_unit
 }
 
-ktdf_arch.device @missing_device import("absolute-device.mlir")
+ktdf_arch.device @missing_device import("DO_NOT_CREATE_A_FILE_WITH_THIS_NAME")
 
 ktdf_arch.device @device attributes {version = 2, overridable = 2} import("device.mlir")
 

@@ -180,7 +180,8 @@ TEST_CASE("mlir::ktdf_arch::DeviceManager::getOrImportDevice(StringRef)") {
   SUBCASE("import missing_device") {
     DiagRecorder recorder(&context, false);
     auto* const device = devices.getOrImportDevice("missing_device");
-    REQUIRE_FALSE(device);
+    REQUIRE(device);
+    CHECK_FALSE(*device);
   }
 
   SUBCASE("import device") {
@@ -212,13 +213,15 @@ TEST_CASE("mlir::ktdf_arch::DeviceManager::getOrImportDevice(StringRef)") {
   SUBCASE("import invalid_device") {
     DiagRecorder recorder(&context, false);
     auto* const device = devices.getOrImportDevice("invalid_device");
-    REQUIRE_FALSE(device);
+    REQUIRE(device);
+    CHECK_FALSE(*device);
   }
 
   SUBCASE("import recursive_device") {
     DiagRecorder recorder(&context, false);
     auto* const device = devices.getOrImportDevice("recursive_device");
-    REQUIRE_FALSE(device);
+    REQUIRE(device);
+    CHECK_FALSE(*device);
   }
 }
 
@@ -242,38 +245,27 @@ TEST_CASE("mlir::ktdf_arch::DeviceManager::getOrImportDevice(DeviceOp)") {
   SUBCASE("get inline_device") {
     const auto declaration = declarations.lookup<DeviceOp>("inline_device");
     DiagRecorder recorder(&context, true);
-    auto* const device = devices.getOrImportDevice(declaration);
-    REQUIRE(device);
+    const auto& device = devices.getOrImportDevice(declaration);
 
-    CHECK_EQ(device->getDeclaration(), declaration);
-    CHECK_EQ(device->getDeclaration(), device->getDefinition());
+    CHECK_EQ(device.getDeclaration(), declaration);
+    CHECK_EQ(device.getDeclaration(), device.getDefinition());
   }
 
   SUBCASE("import device") {
     const auto declaration = declarations.lookup<DeviceOp>("device");
     DiagRecorder recorder(&context, true);
-    auto* const device = devices.getOrImportDevice(declaration);
-    REQUIRE(device);
+    const auto& device = devices.getOrImportDevice(declaration);
 
-    CHECK_EQ(device->getDeclaration(), declaration);
-    CHECK_NE(device->getDeclaration(), device->getDefinition());
-    CHECK_EQ(device->getDefinition()->getParentOp(), nullptr);
-  }
-
-  SUBCASE("get invalid_declaration") {
-    DiagRecorder recorder(&context, true);
-    OpBuilder builder(&context);
-    auto invalid_declaration = DeviceOp::create(
-        builder, builder.getUnknownLoc(), "invalid_declaration");
-
-    REQUIRE_FALSE(devices.getOrImportDevice(invalid_declaration));
+    CHECK_EQ(device.getDeclaration(), declaration);
+    CHECK_NE(device.getDeclaration(), device.getDefinition());
+    CHECK_EQ(device.getDefinition()->getParentOp(), nullptr);
   }
 }
 
 namespace {
 
 struct UseDeviceManagerPass : OperationPass<> {
-  static constexpr auto addr_attr_name = "device_manager.addr";
+  static constexpr auto kAddrAttrName = "device_manager.addr";
 
   UseDeviceManagerPass()
       : OperationPass<>(TypeID::get<UseDeviceManagerPass>()) {}
@@ -288,7 +280,7 @@ struct UseDeviceManagerPass : OperationPass<> {
     if (auto module = dyn_cast<ModuleOp>(getOperation()); module) {
       auto& devices = getAnalysis<DeviceManager>();
 
-      if (module->hasAttr(addr_attr_name)) {
+      if (module->hasAttr(kAddrAttrName)) {
         checkAddresses(module, devices);
       } else {
         storeAddresses(module, devices);
@@ -312,10 +304,10 @@ struct UseDeviceManagerPass : OperationPass<> {
 
     llvm::SmallVector<NamedAttribute> device_addrs;
     for (auto declaration : module.getOps<DeviceOp>()) {
-      auto device = devices.getOrImportDevice(declaration);
+      const auto& device = devices.getOrImportDevice(declaration);
       declaration->setAttr(
-          addr_attr_name,
-          builder.getI64IntegerAttr(reinterpret_cast<std::uintptr_t>(device)));
+          kAddrAttrName,
+          builder.getI64IntegerAttr(reinterpret_cast<std::uintptr_t>(&device)));
     }
   }
 
@@ -326,9 +318,9 @@ struct UseDeviceManagerPass : OperationPass<> {
   }
 
   void checkAddress(DeviceOp declaration, DeviceManager& devices) {
-    auto device = devices.getOrImportDevice(declaration);
-    if (reinterpret_cast<std::uintptr_t>(device) !=
-        declaration->getAttrOfType<IntegerAttr>(addr_attr_name)
+    const auto& device = devices.getOrImportDevice(declaration);
+    if (reinterpret_cast<std::uintptr_t>(&device) !=
+        declaration->getAttrOfType<IntegerAttr>(kAddrAttrName)
             .getValue()
             .getZExtValue()) {
       signalPassFailure();
