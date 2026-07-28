@@ -36,6 +36,10 @@
 #include <llvm/ADT/STLExtras.h>
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/Pass/AnalysisManager.h>
+#include <mlir/Support/TypeID.h>
+
+#include <memory>
+#include <type_traits>
 
 #include "dataflow-scheduler/Dialect/KTDFArch/KTDFArch.h"
 
@@ -124,9 +128,27 @@ class Device : private DeviceOp {
   DeviceOp declaration_;
 };
 
+/// Base class for implementing views over Devices.
+class DeviceView {
+ public:
+  explicit DeviceView(const Device& device) : device_(device) {};
+
+  virtual ~DeviceView();
+
+  [[nodiscard]] auto getContext() const -> MLIRContext* {
+    return device_.getDeclaration()->getContext();
+  }
+  [[nodiscard]] auto getDevice() const -> const Device& { return device_; }
+
+ private:
+  const Device& device_;
+};
+
 /// Manages cached access to defined or imported devices.
 class DeviceManager {
-  using map_type = llvm::DenseMap<StringAttr, Device>;
+  using device_map_type = llvm::DenseMap<StringAttr, Device>;
+  using view_map_type = llvm::DenseMap<std::pair<const Device*, TypeID>,
+                                       std::unique_ptr<DeviceView>>;
 
  public:
   /// Creates a DeviceManager for all devices nested directly below @p op .
@@ -177,54 +199,60 @@ class DeviceManager {
   /// @return Device for @p declaration , which tests `false on import error.
   auto getOrImportDevice(DeviceOp declaration) -> const Device&;
 
+  /// Gets or creates the @p View for @p declaration .
+  ///
+  /// @pre  @p View must be a subclass of `DeviceView`.
+  template <class View>
+  auto getOrCreateView(DeviceOp declaration) -> View& {
+    static_assert(std::is_base_of_v<DeviceView, View>);
+    return getOrCreateView<View>(getOrImportDevice(declaration));
+  }
+
+  /// Gets or creates the @p View for @p device .
+  ///
+  /// @pre  @p View must be a subclass of `DeviceView`.
+  template <class View>
+  auto getOrCreateView(const Device& device) -> View& {
+    static_assert(std::is_base_of_v<DeviceView, View>);
+
+    auto [it, invalid] = views_.try_emplace(
+        std::make_pair(&device, TypeID::get<View>()), nullptr);
+    if (invalid) {
+      it->second = std::make_unique<View>(device);
+    }
+
+    return static_cast<View&>(*it->second);
+  }
+
   //===--------------------------------------------------------------------===//
   // Container Interface
   //===--------------------------------------------------------------------===//
 
   using value_type = Device;
-  using size_type = map_type::size_type;
+  using size_type = device_map_type::size_type;
 
   struct iterator
-      : llvm::mapped_iterator_base<iterator, map_type::const_iterator,
+      : llvm::mapped_iterator_base<iterator, device_map_type::const_iterator,
                                    const Device&> {
-    using llvm::mapped_iterator_base<iterator, map_type::const_iterator,
+    using llvm::mapped_iterator_base<iterator, device_map_type::const_iterator,
                                      const Device&>::mapped_iterator_base;
 
-    static auto mapElement(const map_type::value_type& pair) -> const Device& {
+    static auto mapElement(const device_map_type::value_type& pair)
+        -> const Device& {
       return pair.second;
     }
   };
 
-  [[nodiscard]] auto empty() const -> bool { return map_.empty(); }
-  [[nodiscard]] auto size() const -> size_type { return map_.size(); }
+  [[nodiscard]] auto empty() const -> bool { return devices_.empty(); }
+  [[nodiscard]] auto size() const -> size_type { return devices_.size(); }
 
-  [[nodiscard]] auto begin() const -> iterator { return map_.begin(); }
-  [[nodiscard]] auto end() const -> iterator { return map_.end(); }
+  [[nodiscard]] auto begin() const -> iterator { return devices_.begin(); }
+  [[nodiscard]] auto end() const -> iterator { return devices_.end(); }
 
  private:
   Operation* root_;
-  map_type map_;
-};
-
-/// Base class for implementing views over Devices.
-class DeviceView {
- public:
-  explicit DeviceView(const Device& device) : device_(device) {};
-
-  static auto isInvalidated(const AnalysisManager::PreservedAnalyses& /*pa*/)
-      -> bool {
-    // By default, devices are considered immutable. Clients that change the
-    // device IR must update the views themselves.
-    return false;
-  }
-
-  [[nodiscard]] auto getContext() const -> MLIRContext* {
-    return device_.getDeclaration()->getContext();
-  }
-  [[nodiscard]] auto getDevice() const -> const Device& { return device_; }
-
- private:
-  const Device& device_;
+  device_map_type devices_;
+  view_map_type views_;
 };
 
 }  // namespace mlir::ktdf_arch

@@ -150,15 +150,21 @@ Device::~Device() {
 }
 
 //===----------------------------------------------------------------------===//
+// DeviceView
+//===----------------------------------------------------------------------===//
+
+DeviceView::~DeviceView() = default;
+
+//===----------------------------------------------------------------------===//
 // DeviceManager
 //===----------------------------------------------------------------------===//
 
 auto DeviceManager::getOrImportDevice() -> const Device* {
   {
     // Return the only imported device, if any.
-    const auto it = map_.begin();
-    if (it != map_.end()) {
-      if (std::next(it) != map_.end()) {
+    const auto it = devices_.begin();
+    if (it != devices_.end()) {
+      if (std::next(it) != devices_.end()) {
         return nullptr;
       }
 
@@ -181,8 +187,8 @@ auto DeviceManager::getOrImportDevice() -> const Device* {
 
 auto DeviceManager::getOrImportDevice(StringAttr name) -> const Device* {
   // Try to return the imported device.
-  const auto it = map_.find(name);
-  if (it != map_.end()) {
+  const auto it = devices_.find(name);
+  if (it != devices_.end()) {
     return &it->second;
   }
 
@@ -202,5 +208,6 @@ auto DeviceManager::getOrImportDevice(StringAttr name) -> const Device* {
 auto DeviceManager::getOrImportDevice(DeviceOp declaration) -> const Device& {
   assert(root_->isAncestor(declaration));
 
-  return map_.try_emplace(declaration.getNameAttr(), declaration).first->second;
+  return devices_.try_emplace(declaration.getNameAttr(), declaration)
+      .first->second;
 }

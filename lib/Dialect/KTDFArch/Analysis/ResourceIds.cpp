@@ -129,3 +129,5 @@ auto ResourceIds::getOrAssign(Resource resource,
 
   return assign(resource, *prefix);
 }
+
+MLIR_DEFINE_EXPLICIT_TYPE_ID(mlir::ktdf_arch::ResourceIds);
