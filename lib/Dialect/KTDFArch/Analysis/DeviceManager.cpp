@@ -19,6 +19,7 @@
 #include "dataflow-scheduler/Dialect/KTDFArch/Analysis/DeviceManager.h"
 
 #include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/Mutex.h>
 #include <llvm/Support/SourceMgr.h>
 #include <mlir/IR/AsmState.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -206,8 +207,23 @@ auto DeviceManager::getOrImportDevice(StringAttr name) -> const Device* {
 }
 
 auto DeviceManager::getOrImportDevice(DeviceOp declaration) -> const Device& {
-  assert(root_->isAncestor(declaration));
+  llvm::sys::SmartScopedLock<true> lock(mutex_);
 
   return devices_.try_emplace(declaration.getNameAttr(), declaration)
       .first->second;
+}
+
+auto DeviceManager::getOrCreateViewImpl(
+    const Device& device, TypeID type_id,
+    function_ref<std::unique_ptr<DeviceView>(const Device&)> ctor)
+    -> DeviceView& {
+  llvm::sys::SmartScopedLock<true> lock(mutex_);
+
+  const auto key = std::make_pair(&device, type_id);
+  auto [it, invalid] = views_.try_emplace(key, nullptr);
+  if (invalid) {
+    it->second = ctor(device);
+  }
+
+  return *it->second;
 }

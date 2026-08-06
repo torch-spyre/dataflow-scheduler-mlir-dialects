@@ -34,6 +34,7 @@
 #define DATAFLOW_SCHEDULER_DIALECT_KTDFARCH_ANALYSIS_DEVICEMANAGER_H_
 
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/Support/Mutex.h>
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/Pass/AnalysisManager.h>
 #include <mlir/Support/TypeID.h>
@@ -152,7 +153,7 @@ class DeviceManager {
 
  public:
   /// Creates a DeviceManager for all devices nested directly below @p op .
-  explicit DeviceManager(Operation* root) : root_(root) {}
+  explicit DeviceManager(Operation* root) : root_(root), mutex_() {}
 
   // DeviceManagers are neither movable nor copyable.
   DeviceManager(const DeviceManager&) = delete;
@@ -214,14 +215,11 @@ class DeviceManager {
   template <class View>
   auto getOrCreateView(const Device& device) -> View& {
     static_assert(std::is_base_of_v<DeviceView, View>);
+    static_assert(std::is_constructible_v<DeviceView, const Device&>);
 
-    auto [it, invalid] = views_.try_emplace(
-        std::make_pair(&device, TypeID::get<View>()), nullptr);
-    if (invalid) {
-      it->second = std::make_unique<View>(device);
-    }
-
-    return static_cast<View&>(*it->second);
+    return static_cast<View&>(getOrCreateViewImpl(
+        device, TypeID::get<View>(),
+        [](const Device& device) { return std::make_unique<View>(device); }));
   }
 
   //===--------------------------------------------------------------------===//
@@ -250,9 +248,15 @@ class DeviceManager {
   [[nodiscard]] auto end() const -> iterator { return devices_.end(); }
 
  private:
+  auto getOrCreateViewImpl(
+      const Device& device, TypeID type_id,
+      function_ref<std::unique_ptr<DeviceView>(const Device&)> ctor)
+      -> DeviceView&;
+
   Operation* root_;
   device_map_type devices_;
   view_map_type views_;
+  llvm::sys::SmartMutex<true> mutex_;
 };
 
 }  // namespace mlir::ktdf_arch
