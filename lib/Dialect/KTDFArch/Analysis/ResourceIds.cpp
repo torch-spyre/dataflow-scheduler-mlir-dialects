@@ -34,12 +34,8 @@ using namespace mlir;
 using namespace mlir::ktdf_arch;
 
 ResourceIds::ResourceIds(const Device& device) : DeviceView(device) {
-  if (!getDevice()) {
-    return;
-  }
-
   // Visit all resources in the device to populate the map.
-  getDevice().getDefinition()->walk([&](Resource resource) {
+  getDevice().getBodyRegion().walk([&](Resource resource) {
     if (const auto id_attr = resource.getIdAttr(); id_attr) {
       auto [it, inserted] = map_.try_emplace(id_attr, resource);
       assert(inserted);

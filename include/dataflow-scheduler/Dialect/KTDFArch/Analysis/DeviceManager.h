@@ -77,10 +77,11 @@ class Device : private DeviceOp {
   ~Device();
 
   [[nodiscard]] auto getBody() const -> Block* {
-    return getDefinition().getBody();
+    return getDefinition() ? getDefinition().getBody() : nullptr;
   }
   [[nodiscard]] auto getBodyRegion() const -> Region& {
-    return getDefinition().getBodyRegion();
+    return getDefinition() ? getDefinition().getBodyRegion()
+                           : getDeclaration().getBodyRegion();
   }
   [[nodiscard]] auto getName() const -> StringRef {
     return getDeclaration().getName();
@@ -89,7 +90,8 @@ class Device : private DeviceOp {
     return getDeclaration().getNameAttr();
   }
   [[nodiscard]] auto getVersion() const -> std::optional<int64_t> {
-    return getDefinition().getVersion();
+    return getDefinition() ? getDefinition().getVersion()
+                           : getDeclaration().getVersion();
   }
 
   [[nodiscard]] auto getContext() const -> MLIRContext* {
@@ -97,11 +99,13 @@ class Device : private DeviceOp {
   }
 
   [[nodiscard]] auto getAttr(StringRef name) const -> Attribute {
-    return getDefinition()->getAttr(name);
+    return getDefinition() ? getDefinition()->getAttr(name)
+                           : getDeclaration()->getAttr(name);
   }
   template <class Attr>
   [[nodiscard]] auto getAttrOfType(StringRef name) const -> Attr {
-    return getDefinition()->getAttrOfType<Attr>(name);
+    return getDefinition() ? getDefinition()->getAttrOfType<Attr>(name)
+                           : getDeclaration()->getAttrOfType<Attr>(name);
   }
 
   [[nodiscard]] auto isImported() const -> bool {
