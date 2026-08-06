@@ -43,7 +43,11 @@ class ResourceIds : public DeviceView {
   using map_type = DenseMap<StringAttr, Resource>;
 
  public:
-  /// Creates the ResourceIds for the device declared by @p declaration .
+  /// Creates ResourceIds for @p device .
+  explicit ResourceIds(const Device& device);
+
+  /// Creates ResourceIds for the device declared by @p declaration .
+  [[deprecated("use ResourceIds(const Device &)")]]
   explicit ResourceIds(DeviceOp declaration, AnalysisManager& analyses);
 
   /// Obtains the resource with @p id , if it exists.

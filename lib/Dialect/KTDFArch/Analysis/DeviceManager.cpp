@@ -204,17 +204,3 @@ auto DeviceManager::getOrImportDevice(DeviceOp declaration) -> const Device& {
 
   return map_.try_emplace(declaration.getNameAttr(), declaration).first->second;
 }
-
-//===----------------------------------------------------------------------===//
-// DeviceView
-//===----------------------------------------------------------------------===//
-
-DeviceView::DeviceView(DeviceOp declaration, DeviceManager& devices) {
-  device_ = &devices.getOrImportDevice(declaration);
-}
-
-DeviceView::DeviceView(DeviceOp declaration, AnalysisManager& analyses)
-    : DeviceView(declaration, analyses
-                                  .getCachedParentAnalysis<DeviceManager>(
-                                      declaration->getParentOp())
-                                  ->get()) {}

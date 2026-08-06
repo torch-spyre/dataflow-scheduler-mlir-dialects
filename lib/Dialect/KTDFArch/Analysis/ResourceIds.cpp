@@ -20,6 +20,7 @@
 
 #include <llvm/ADT/SmallString.h>
 #include <llvm/Support/Casting.h>
+#include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/SymbolTable.h>
 #include <mlir/Pass/AnalysisManager.h>
 #include <mlir/Support/WalkResult.h>
@@ -32,8 +33,7 @@
 using namespace mlir;
 using namespace mlir::ktdf_arch;
 
-ResourceIds::ResourceIds(DeviceOp declaration, AnalysisManager& analyses)
-    : DeviceView(declaration, analyses) {
+ResourceIds::ResourceIds(const Device& device) : DeviceView(device) {
   if (!getDevice()) {
     return;
   }
@@ -46,6 +46,13 @@ ResourceIds::ResourceIds(DeviceOp declaration, AnalysisManager& analyses)
     }
   });
 }
+
+ResourceIds::ResourceIds(DeviceOp declaration, AnalysisManager& analyses)
+    : ResourceIds(analyses
+                      .getCachedParentAnalysis<DeviceManager>(
+                          declaration->getParentOfType<ModuleOp>())
+                      ->get()
+                      .getOrImportDevice(declaration)) {}
 
 auto ResourceIds::assign(Resource resource, StringAttr id) -> bool {
   // We can only assign identifiers to resources owned by our device.

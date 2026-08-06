@@ -152,16 +152,15 @@ class DeviceManager {
   ///
   /// See getOrImportDevice(DeviceOp) for more information on importing.
   ///
-  /// @retval Device    Only device in the current scope.
-  /// @retval false     Importing failed.
+  /// @retval Device    Only device in the current scope, testing `false` on
+  ///                   import error .
   /// @retval nullptr   No or more than one device found.
   auto getOrImportDevice() -> const Device*;
   /// Gets the Device for @p name , importing it if necessary.
   ///
   /// See getOrImportDevice(DeviceOp) for more information on importing.
   ///
-  /// @retval Device    Device with @p name .
-  /// @retval false     Importing failed.
+  /// @retval Device    Device with @p name , testing `false` on import error .
   /// @retval nullptr   No such device found, or importing failed.
   auto getOrImportDevice(StringAttr name) -> const Device*;
   /// @copydoc getOrImportDevice(StringAttr)
@@ -175,8 +174,7 @@ class DeviceManager {
   ///
   /// See Device(DeviceOp) for more information on importing.
   ///
-  /// @retval Decive    Device for @p declaration .
-  /// @retval false     Importing failed.
+  /// @return Device for @p declaration , which tests `false on import error.
   auto getOrImportDevice(DeviceOp declaration) -> const Device&;
 
   //===--------------------------------------------------------------------===//
@@ -211,8 +209,7 @@ class DeviceManager {
 /// Base class for implementing views over Devices.
 class DeviceView {
  public:
-  explicit DeviceView(DeviceOp declaration, DeviceManager& devices);
-  explicit DeviceView(DeviceOp declaration, AnalysisManager& analyses);
+  explicit DeviceView(const Device& device) : device_(device) {};
 
   static auto isInvalidated(const AnalysisManager::PreservedAnalyses& /*pa*/)
       -> bool {
@@ -222,12 +219,12 @@ class DeviceView {
   }
 
   [[nodiscard]] auto getContext() const -> MLIRContext* {
-    return device_->getDeclaration()->getContext();
+    return device_.getDeclaration()->getContext();
   }
-  [[nodiscard]] auto getDevice() const -> const Device& { return *device_; }
+  [[nodiscard]] auto getDevice() const -> const Device& { return device_; }
 
  private:
-  const Device* device_;
+  const Device& device_;
 };
 
 }  // namespace mlir::ktdf_arch

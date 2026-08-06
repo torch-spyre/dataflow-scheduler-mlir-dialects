@@ -50,8 +50,8 @@ TEST_CASE("mlir::ktdf_arch::ResourceIds") {
   // Setup an AnalysisManager to mock pass execution.
   ModuleAnalysisManager module_analyses(module.get(), nullptr);
   AnalysisManager analysis_manager = module_analyses;
-  std::ignore = analysis_manager.getAnalysis<DeviceManager>();
-  auto& resources = analysis_manager.getChildAnalysis<ResourceIds>(device);
+  auto& devices = analysis_manager.getAnalysis<DeviceManager>();
+  ResourceIds resources(devices.getOrImportDevice(device));
 
   SUBCASE("lookup(StringRef)") {
     CHECK_FALSE(resources["exec_unit"]);
