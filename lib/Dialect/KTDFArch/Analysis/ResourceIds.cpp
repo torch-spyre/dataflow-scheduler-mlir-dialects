@@ -47,13 +47,6 @@ ResourceIds::ResourceIds(const Device& device) : DeviceView(device) {
   });
 }
 
-ResourceIds::ResourceIds(DeviceOp declaration, AnalysisManager& analyses)
-    : ResourceIds(analyses
-                      .getCachedParentAnalysis<DeviceManager>(
-                          declaration->getParentOfType<ModuleOp>())
-                      ->get()
-                      .getOrImportDevice(declaration)) {}
-
 auto ResourceIds::assign(Resource resource, StringAttr id) -> bool {
   // We can only assign identifiers to resources owned by our device.
   if (!getDevice() || !getDevice().getDefinition()->isAncestor(resource)) {

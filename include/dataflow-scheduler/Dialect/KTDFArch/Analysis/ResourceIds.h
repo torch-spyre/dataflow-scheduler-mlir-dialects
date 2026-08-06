@@ -47,10 +47,6 @@ class ResourceIds : public DeviceView {
   /// Creates ResourceIds for @p device .
   explicit ResourceIds(const Device& device);
 
-  /// Creates ResourceIds for the device declared by @p declaration .
-  [[deprecated("use ResourceIds(const Device &)")]]
-  explicit ResourceIds(DeviceOp declaration, AnalysisManager& analyses);
-
   /// Obtains the resource with @p id , if it exists.
   [[nodiscard]] auto lookup(StringAttr id) const -> Resource {
     return map_.lookup(id);
