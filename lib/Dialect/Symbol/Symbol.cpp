@@ -22,14 +22,42 @@
 
 #include "dataflow-scheduler/Dialect/Symbol/Symbol.h"
 
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/DialectImplementation.h>
+#include <mlir/IR/OpImplementation.h>
 #include <mlir/Interfaces/LoopLikeInterface.h>
 #include <mlir/Support/LLVM.h>
 
 using namespace mlir;
 using namespace mlir::symbol;
+
+namespace {
+
+auto parseImmutableMap(OpAsmParser& parser,
+                       SmallVectorImpl<OpAsmParser::UnresolvedOperand>& keys,
+                       SmallVectorImpl<OpAsmParser::UnresolvedOperand>& values)
+    -> ParseResult {
+  return parser.parseCommaSeparatedList(
+      AsmParser::Delimiter::Paren, [&]() -> ParseResult {
+        return failure(
+            parser.parseLSquare() || parser.parseOperand(keys.emplace_back()) ||
+            parser.parseArrow() || parser.parseOperand(values.emplace_back()) ||
+            parser.parseRSquare());
+      });
+}
+
+void printImmutableMap(OpAsmPrinter& printer, Operation* /*op*/, ValueRange keys,
+                       ValueRange values) {
+  printer << "(";
+  llvm::interleaveComma(llvm::zip_equal(keys, values), printer, [&](auto pair) {
+    printer << "[" << std::get<0>(pair) << " -> " << std::get<1>(pair) << "]";
+  });
+  printer << ")";
+}
+
+}  // namespace
 
 //===----------------------------------------------------------------------===//
 // SymbolDialect
@@ -51,64 +79,15 @@ void SymbolDialect::initialize() {
 // SymbolImmutableMappingOp
 //===----------------------------------------------------------------------===//
 
-// syntax:%result = symbol.symbol_immutable_mapping([%1 -> %2],[%3 -> %4]):index
-ParseResult SymbolImmutableMappingOp::parse(OpAsmParser &parser,
-                                            OperationState &result) {
-  auto &builder = parser.getBuilder();
-  auto index_type = builder.getIndexType();
-
-  SmallVector<OpAsmParser::UnresolvedOperand, 1> keys, values;
-  OpAsmParser::UnresolvedOperand key, value;
-  auto op_result = parser.parseLParen().failed();
-  while (parser.parseOptionalLSquare().succeeded()) {
-    op_result = op_result || parser.parseOperand(key) || parser.parseArrow() ||
-                parser.parseOperand(value) || parser.parseRSquare();
-    auto parse_result = parser.parseOptionalComma();
-    keys.push_back(key);
-    values.push_back(value);
-  }
-  Type result_type;
-  op_result =
-      op_result || parser.parseRParen() || parser.parseColonType(result_type);
-  result.types.push_back(result_type);
-  int size = keys.size();
-  result.attributes.push_back(
-      builder.getNamedAttr(getOperandSegmentSizesAttrName(OperationName(
-                               getOperationName(), builder.getContext())),
-                           builder.getDenseI32ArrayAttr({size, size})));
-  op_result = op_result ||
-              parser.resolveOperands(keys, index_type, result.operands) ||
-              parser.resolveOperands(values, index_type, result.operands);
-
-  return failure(op_result);
-}
-
-void SymbolImmutableMappingOp::print(OpAsmPrinter &p) {
-  auto &op = *this;
-
-  int size = op.getKeys().size();
-  p << '(';
-  for (int i = 0; i < size; i++) {
-    p << '[';
-    p.printOperand(op.getKeys()[i]);
-    p << " -> ";
-    p.printOperand(op.getValues()[i]);
-    p << ']';
-    if (i < size - 1) p << ", ";
-  }
-  p << "):";
-  p.printType(op.getResult().getType());
-}
-
 LogicalResult SymbolImmutableMappingOp::verify() {
-  auto &op = *this;
+  auto& op = *this;
   if (op.getKeys().size() != op.getValues().size()) {
     op.emitError("Mismatching keys/values sizes in SymbolImmutableMapping\n");
     return failure();
   }
 
   for (auto key : op.getKeys()) {
-    Operation *key_def = key.getDefiningOp();
+    Operation* key_def = key.getDefiningOp();
     if (!key_def || !key_def->hasTrait<mlir::OpTrait::ConstantLike>()) {
       op.emitError() << "All keys expected to be constant operations\n";
       return failure();
@@ -136,41 +115,8 @@ LogicalResult SymbolImmutableMappingOp::verify() {
 // SymbolQueryMapOp
 //===----------------------------------------------------------------------===//
 
-// syntax:%result = symbol.query_map(map:%2, key:%1) : index
-ParseResult SymbolQueryMapOp::parse(OpAsmParser &parser,
-                                    OperationState &result) {
-  auto &builder = parser.getBuilder();
-  auto index_type = builder.getIndexType();
-
-  OpAsmParser::UnresolvedOperand map, key;
-  Type result_type;
-
-  auto op_result = parser.parseLParen() || parser.parseKeyword("map") ||
-                   parser.parseColon() || parser.parseOperand(map) ||
-                   parser.parseComma() || parser.parseKeyword("key") ||
-                   parser.parseColon() || parser.parseOperand(key) ||
-                   parser.parseRParen() || parser.parseColonType(result_type);
-  result.types.push_back(result_type);
-  op_result = op_result ||
-              parser.resolveOperand(map, index_type, result.operands) ||
-              parser.resolveOperand(key, index_type, result.operands);
-
-  return failure(op_result);
-}
-
-void SymbolQueryMapOp::print(OpAsmPrinter &p) {
-  auto &op = *this;
-
-  p << "(map:";
-  p.printOperand(op.getMap());
-  p << ", key:";
-  p.printOperand(op.getKey());
-  p << ") : ";
-  p.printType(op.getResult().getType());
-}
-
 LogicalResult SymbolQueryMapOp::verify() {
-  auto &op = *this;
+  auto& op = *this;
   // Key expected to be a loop iterator argument or a Value.
   if (dyn_cast<BlockArgument>(op.getKey())) {
     auto parent_op = op.getKey().getParentRegion()->getParentOp();

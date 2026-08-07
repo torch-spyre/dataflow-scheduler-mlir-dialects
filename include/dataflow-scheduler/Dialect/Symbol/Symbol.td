@@ -87,17 +87,20 @@ def Symbol_CreateIdOp : Symbol_Op<"create_id",
 }
 
 def SymbolImmutableMappingOp : Symbol_Op<"symbol_immutable_mapping",
-  [NoMemoryEffect, IsolatedFromAbove, AttrSizedOperandSegments]> {
+  [NoMemoryEffect, IsolatedFromAbove, SameVariadicOperandSize]> {
   let summary = "symbol_immutable_mapping operation";
   let description = [{
     This operation constructs a key-value dictionary to map arith.constant SSA values to symbols.
   }];
 
-  let arguments = (ins Variadic<AnyType>:$keys,
-                       Variadic<AnyType>:$values);
+  let arguments = (ins Variadic<Index>:$keys,
+                       Variadic<Index>:$values);
   let results = (outs Index:$result);
 
-  let hasCustomAssemblyFormat = 1;
+  let assemblyFormat = [{
+    custom<ImmutableMap>($keys, $values) attr-dict `:` type($result)
+  }];
+
   let hasVerifier = 1;
 }
 
@@ -112,7 +115,9 @@ def SymbolQueryMapOp : Symbol_Op<"query_map",
                        Index:$key);
   let results = (outs Index:$result);
 
-  let hasCustomAssemblyFormat = 1;
+  let assemblyFormat = [{
+    `(````map````:```$map `,` `key````:```$key ```)` attr-dict `:` type($result)
+  }];
 
   let hasVerifier = 1;
 }

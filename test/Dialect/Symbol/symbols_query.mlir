@@ -10,7 +10,7 @@
 // CHECK-NEXT:     %[[VAL_6:.*]] = dataflow.get_unit {core = 0 : i32, corelet = 0 : i32, name = "C0-CL0-L3-SU", type = "l3su"} : index
 // CHECK-NEXT:     dataflow.program_unit %[[VAL_6]] : {
 // CHECK-NEXT:       affine.for %[[VAL_7:.*]] = 0 to %[[VAL_5]] {
-// CHECK-NEXT:         %[[VAL_8:.*]] = symbol.symbol_immutable_mapping({{\[}}%[[VAL_3]] -> %[[VAL_0]]], {{\[}}%[[VAL_4]] -> %[[VAL_1]]], {{\[}}%[[VAL_5]] -> %[[VAL_2]]]):index
+// CHECK-NEXT:         %[[VAL_8:.*]] = symbol.symbol_immutable_mapping ({{\[}}%[[VAL_3]] -> %[[VAL_0]]], {{\[}}%[[VAL_4]] -> %[[VAL_1]]], {{\[}}%[[VAL_5]] -> %[[VAL_2]]]) : index
 // CHECK-NEXT:         %[[VAL_9:.*]] = symbol.query_map(map:%[[VAL_8]], key:%[[VAL_7]]) : index
 // CHECK-NEXT:       }
 // CHECK-NEXT:     }
