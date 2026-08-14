@@ -44,13 +44,11 @@ using namespace mlir::dataflow;
 //===----------------------------------------------------------------------===//
 
 LogicalResult GetUnitOp::verify() {
-  auto& op = *this;
-  return op.getNumResults() >= 1 ? LogicalResult::success() : failure();
-}
+  if (getNumResults() < 1) {
+    return emitOpError("expected at least 1 result");
+  }
 
-Value GetUnitOp::getUnit() {
-  auto& op = *this;
-  return op.getResult(0);
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -60,12 +58,12 @@ Value GetUnitOp::getUnit() {
 void ProgramUnitOp::build(OpBuilder& builder, OperationState& result,
                           ValueRange unitIds, StringAttr precision_attr,
                           ProgramUnitOp::BodyBuilderFn bodyBuilder) {
+  auto& props = result.getOrAddProperties<Properties>();
+
   result.addOperands(unitIds);
-  //  result.addTypes(unitId.getType());
 
   if (!precision_attr.getValue().str().empty()) {
-    result.addAttribute(dataflow::ProgramUnitOp::getPrecisionAttrName(result.name),
-                        precision_attr);
+    props.precision = precision_attr;
   }
 
   // Add a body region with block arguments as unwrapped async value operands.
@@ -181,6 +179,8 @@ void ProgramUnitOp::print(OpAsmPrinter& _odsPrinter) {
 
 ParseResult GetPagedLogicalMemoryViewOp::parse(OpAsmParser& parser,
                                                OperationState& result) {
+  auto& props = result.getOrAddProperties<Properties>();
+
   // Parse the operands.
   OpAsmParser::UnresolvedOperand unit, start_addr;
   auto op_result = parser.parseOperand(unit) || parser.parseComma() ||
@@ -216,7 +216,7 @@ ParseResult GetPagedLogicalMemoryViewOp::parse(OpAsmParser& parser,
   op_result = op_result || parser.parseRBrace();
 
   auto& builder = parser.getBuilder();
-  result.addAttribute("idx_sets", builder.getArrayAttr(idx_sets));
+  props.idx_sets = builder.getArrayAttr(idx_sets);
 
   // Parse the types. The operation only displays the type of the unit and
   // start_address operands, and the type of the result of the operation.
@@ -286,8 +286,7 @@ LogicalResult GetPagedLogicalMemoryViewOp::verify() {
 
     // The page sets need to be hyper rectangular.
     auto idx_set = idx_sets[page_idx];
-    auto page_set = dyn_cast<IntegerSetAttr>(idx_set);
-    if (!page_set) return op->emitOpError("idx_sets should be IntegerSetAttrs");
+    auto page_set = cast<IntegerSetAttr>(idx_set);
     FlatLinearValueConstraints page_set_flat(page_set.getValue());
     if (!page_set_flat.isHyperRectangular(0, page_set_flat.getNumCols() - 1))
       return op->emitOpError("idx_set should be hyper rectangular");
