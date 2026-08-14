@@ -236,6 +236,7 @@ auto feature::LoadStore::AccessGranularityListAttr::fitAccess(
     size_t min_size, size_t max_align) const -> AccessGranularityAttr {
   AccessGranularityAttr result;
   auto best_size = AccessGranularityAttr::kMaxSize;
+  auto best_align = max_align;
 
   for (const auto access : getValue()) {
     // Filter by size requirement.
@@ -246,17 +247,24 @@ auto feature::LoadStore::AccessGranularityListAttr::fitAccess(
     }
 
     // Filter by alignment requirement.
-    if (access.getAlign().value_or(AccessGranularityAttr::kMinAlign) >
-        max_align) {
+    const auto align =
+        access.getAlign().value_or(AccessGranularityAttr::kMinAlign);
+    if (align > max_align) {
       continue;
     }
 
-    if (result && best_size < size) {
-      continue;
+    if (result) {
+      if (size > best_size) {
+        continue;
+      }
+      if (size == best_size && align > best_align) {
+        continue;
+      }
     }
 
     result = access;
     best_size = size;
+    best_align = align;
   }
 
   return result;

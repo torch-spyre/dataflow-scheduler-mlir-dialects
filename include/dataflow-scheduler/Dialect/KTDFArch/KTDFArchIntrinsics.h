@@ -205,6 +205,9 @@ struct LoadStore : FeatureAttr<&KTDFArchDialect::getFeatureLoadStoreAttrName> {
 
     /// Finds the smallest access that fits @p min_size with @p max_align .
     ///
+    /// If there are multiple candidates of exact @p min_size , then the
+    /// candidate with the smallest (most permissive) alignment is chosen.
+    ///
     /// @retval nullptr               No fitting access found.
     /// @retval AccessGranularityAttr Best access found.
     [[nodiscard]] auto fitAccess(size_t min_size, size_t max_align = -1) const
