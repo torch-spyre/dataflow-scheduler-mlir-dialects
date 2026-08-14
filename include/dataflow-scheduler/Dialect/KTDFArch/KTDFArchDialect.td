@@ -38,6 +38,10 @@ def KTDFArch_Dialect : Dialect {
     resources, which are connected by links.
   }];
 
+  let dependentDialects = [
+    "pdl::PDLDialect"
+  ];
+
   let useDefaultTypePrinterParser = 1;
   let useDefaultAttributePrinterParser = 1;
 
