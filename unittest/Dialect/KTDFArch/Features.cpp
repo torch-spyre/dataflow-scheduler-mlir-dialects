@@ -57,6 +57,46 @@ auto testFeature(MLIRContext* context, StringRef provided, StringRef required)
 
 }  // namespace
 
+TEST_CASE("mlir::ktdf_arch::feature::LoadStore") {
+  // Setup an MLIR context.
+  DialectRegistry registry;
+  registry.insert<ktdf_arch::KTDFArchDialect>();
+  MLIRContext context(registry);
+  context.allowUnregisteredDialects();
+  context.loadAllAvailableDialects();
+
+  SUBCASE("access_granularity") {
+    CHECK(testFeature<feature::LoadStore>(
+        &context, "{ access_granularity = #ktdf_arch.map<\"A\" = []> }",
+        "{ }"));
+    CHECK(testFeature<feature::LoadStore>(
+        &context, "{ }",
+        "{ access_granularity = #ktdf_arch.map<\"A\" = []> }"));
+    CHECK(testFeature<feature::LoadStore>(
+        &context, "{ access_granularity = #ktdf_arch.map<\"A\" = [{}]> }",
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{}]> }"));
+
+    CHECK_FALSE(testFeature<feature::LoadStore>(
+        &context, "{ }",
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{}]> }"));
+    CHECK_FALSE(testFeature<feature::LoadStore>(
+        &context,
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{align = 8}]> }",
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{align = 1}]> }"));
+    CHECK_FALSE(testFeature<feature::LoadStore>(
+        &context,
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size = 1}]> }",
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size = 8}]> }"));
+
+    CHECK(testFeature<feature::LoadStore>(
+        &context,
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size = 8, align = "
+        "4}]> }",
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size = 4, align = "
+        "8}]> }"));
+  }
+}
+
 TEST_CASE("mlir::ktdf_arch::feature::SIMD") {
   // Setup an MLIR context.
   DialectRegistry registry;

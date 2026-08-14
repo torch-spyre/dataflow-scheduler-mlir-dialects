@@ -501,7 +501,7 @@ def KTDFArch_SwitchOp : KTDFArch_NodeOp<
     ```
     ktdf_arch.device @my_device {
       %sw0:2 = switch [2]
-      %sw1:2 = switch [2] { connectivity = dense<[[0, 1],[1, 0]]> : tensor<2x2xi1> }
+      %sw1:2 = switch [2] { connectivity = dense<[[0, 1], [1, 0]]> : tensor<2x2xi1> }
       %sw2:4 = switch [4] { connectivity = sparse<[[0, 2], [0, 3], [1, 2]], true> : tensor<4x4xi1> }
     }
     ```

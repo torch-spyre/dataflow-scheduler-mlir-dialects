@@ -14,8 +14,15 @@ ktdf_arch.device @my_device attributes {version = 1} {
     }
   }
   %ls = exec_unit { 
-    load_store,
     ktdf_arch.features = {
+      ktdf_arch.feature.load_store = {
+        access_granularity = #ktdf_arch.map<
+          "DDR" = [
+            {size = 1, align = 1},
+            {size = 128, align = 128}
+          ]
+        >
+      },
       ktdf_arch.feature.simd = { splat, zero_pad }
     }
   }

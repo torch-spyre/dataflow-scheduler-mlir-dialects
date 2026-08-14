@@ -28,6 +28,7 @@
 #include <cstdint>
 
 #include "dataflow-scheduler/Dialect/KTDFArch/KTDFArch.h"
+#include "dataflow-scheduler/Dialect/KTDFArch/KTDFArchAttributes.h"
 #include "dataflow-scheduler/Dialect/KTDFArch/KTDFArchDialect.h"
 
 using namespace mlir;
@@ -213,6 +214,131 @@ auto KTDFArchDialect::testFeatureCompute(Attribute provided,
 }
 
 //===----------------------------------------------------------------------===//
+// feature::LoadStore
+//===----------------------------------------------------------------------===//
+
+auto feature::LoadStore::AccessGranularityAttr::verify(
+    EmitErrorFn emit_error) const -> LogicalResult {
+  const auto size = DictionaryAttr::get("size");
+  if (size && !isa<I64Attr>(size)) {
+    return emit_error() << "attribute 'size' requires 64-bit integer";
+  }
+
+  const auto align = DictionaryAttr::get("align");
+  if (align && !isa<I64Attr>(align)) {
+    return emit_error() << "attribute 'align' requires 64-bit integer";
+  }
+
+  return success();
+}
+
+auto feature::LoadStore::AccessGranularityListAttr::fitAccess(
+    size_t min_size, size_t max_align) const -> AccessGranularityAttr {
+  AccessGranularityAttr result;
+  auto best_size = AccessGranularityAttr::kMaxSize;
+
+  for (const auto access : getValue()) {
+    // Filter by size requirement.
+    const auto size =
+        access.getSize().value_or(AccessGranularityAttr::kMaxSize);
+    if (size < min_size) {
+      continue;
+    }
+
+    // Filter by alignment requirement.
+    if (access.getAlign().value_or(AccessGranularityAttr::kMinAlign) >
+        max_align) {
+      continue;
+    }
+
+    if (result && best_size < size) {
+      continue;
+    }
+
+    result = access;
+    best_size = size;
+  }
+
+  return result;
+}
+
+auto feature::LoadStore::verify(EmitErrorFn emit_error) const -> LogicalResult {
+  const auto access_granularity = getAttr("access_granularity");
+  if (access_granularity) {
+    const auto typed = dyn_cast<AccessGranularityMapAttr>(access_granularity);
+    if (!typed) {
+      return emit_error() << "attribute 'access_granularity' requires map from "
+                             "attribute to array of dictionary attribtues";
+    }
+
+    for (const auto entry : typed) {
+      const auto emit_space_error = [&]() {
+        return emit_error()
+               << "attribute 'access_granularity[" << entry.first << "]' ";
+      };
+      for (const auto access : entry.second) {
+        if (failed(access.verify(emit_space_error))) {
+          return failure();
+        }
+      }
+    }
+  }
+
+  return success();
+}
+
+auto feature::LoadStore::test(LoadStore requirements) const -> bool {
+  if (const auto required = requirements.getAccessGranularity(); required) {
+    for (const auto [space, required_accesses] : required) {
+      if (required_accesses.empty()) {
+        continue;
+      }
+
+      const auto provided_accesses = getAccessGranularity(space);
+      if (!provided_accesses) {
+        return false;
+      }
+
+      for (const auto required_access : required_accesses) {
+        if (!provided_accesses.fitAccess(
+                required_access.getSize().value_or(1),
+                required_access.getAlign().value_or(1))) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+auto KTDFArchDialect::verifyFeatureLoadStoreAttr(Operation* op,
+                                                 const NamedAttribute& attr)
+    -> LogicalResult {
+  const auto emit_error = [&]() -> InFlightDiagnostic {
+    return emitIntrinsicError(op, attr);
+  };
+
+  if (isa<KTDFArchDialect>(op->getDialect()) && !isa<ExecutionUnitOp>(op)) {
+    return emit_error() << "only valid on execution units";
+  }
+
+  const auto value = dyn_cast<feature::LoadStore>(attr.getValue());
+  if (!value) {
+    return emit_error() << "requires unit or dictionary attribute";
+  }
+  return value.verify(emit_error);
+}
+
+auto KTDFArchDialect::testFeatureLoadStore(Attribute provided,
+                                           const Feature& required) -> bool {
+  const auto required_value = cast<feature::LoadStore>(required.getValue());
+  const auto provided_value = cast<feature::LoadStore>(provided);
+
+  return provided_value.test(required_value);
+}
+
+//===----------------------------------------------------------------------===//
 // feature::SIMD
 //===----------------------------------------------------------------------===//
 
@@ -237,18 +363,18 @@ auto KTDFArchDialect::verifyFeatureSIMDAttr(Operation* op,
 auto feature::SIMD::verify(EmitErrorFn emit_error) const -> LogicalResult {
   const auto splat = getAttr("splat");
   if (splat && !isa<UnitAttr>(splat)) {
-    return emit_error() << "'splat' requires unit attribute";
+    return emit_error() << "attribute 'splat' requires unit";
   }
 
   const auto zero_pad = getAttr("zero_pad");
   if (zero_pad && !isa<UnitAttr>(zero_pad)) {
-    return emit_error() << "'zero_pad' requires unit attribute";
+    return emit_error() << "attribute 'zero_pad' requires unit";
   }
 
   const auto lanes = getAttr("lanes");
   if (lanes && !isa<LanesAttr>(lanes)) {
-    return emit_error() << "'lanes' requires '" << MapAttr::getMnemonic()
-                        << "' from type to 64-bit integer attributes";
+    return emit_error()
+           << "attribute 'lanes' requires map from type to 64-bit integer";
   }
 
   return success();
@@ -315,7 +441,7 @@ auto KTDFArchDialect::verifyFeatureQueueAttr(Operation* op,
 auto feature::Queue::verify(EmitErrorFn emit_error) const -> LogicalResult {
   const auto ordered = getAttr("ordered");
   if (ordered && !isa<UnitAttr>(ordered)) {
-    return emit_error() << "'ordered' requires unit attribute";
+    return emit_error() << "attribute 'ordered' requires unit";
   }
 
   if (const auto maybe_size = getSize(); maybe_size) {
@@ -323,7 +449,7 @@ auto feature::Queue::verify(EmitErrorFn emit_error) const -> LogicalResult {
       return emit_error() << "'size' must be > 0";
     }
   } else if (getAttr("size")) {
-    return emit_error() << "'size' requires 64-bit integer attribute";
+    return emit_error() << "attribute 'size' requires 64-bit integer";
   }
 
   if (const auto maybe_depth = getDepth(); maybe_depth) {
@@ -331,7 +457,7 @@ auto feature::Queue::verify(EmitErrorFn emit_error) const -> LogicalResult {
       return emit_error() << "'depth' must be > 0";
     }
   } else if (getAttr("depth")) {
-    return emit_error() << "'depth' requires 64-bit integer attribute";
+    return emit_error() << "attribute 'depth' requires 64-bit integer";
   }
 
   return success();

@@ -174,6 +174,67 @@ struct Compute : FeatureAttr<&KTDFArchDialect::getFeatureComputeAttrName> {
   using FeatureAttr::FeatureAttr;
 };
 
+// Indicates that the execution unit can perform load & store operations.
+struct LoadStore : FeatureAttr<&KTDFArchDialect::getFeatureLoadStoreAttrName> {
+  struct AccessGranularityAttr : DictionaryAttr {
+    static constexpr size_t kMaxSize = SIZE_MAX;
+    static constexpr size_t kMinAlign = 1;
+
+    using DictionaryAttr::DictionaryAttr;
+
+    auto verify(EmitErrorFn emit_error) const -> LogicalResult;
+
+    /// Gets the access size in bytes.
+    [[nodiscard]] auto getSize() const -> std::optional<size_t> {
+      if (const auto attr = DictionaryAttr::getAs<I64Attr>("size"); attr) {
+        return attr.getValue();
+      }
+      return std::nullopt;
+    }
+    /// Gets the access alignment in bytes.
+    [[nodiscard]] auto getAlign() const -> std::optional<size_t> {
+      if (const auto attr = DictionaryAttr::getAs<I64Attr>("align"); attr) {
+        return attr.getValue();
+      }
+      return std::nullopt;
+    }
+  };
+
+  struct AccessGranularityListAttr : TypedArrayAttr<AccessGranularityAttr> {
+    using TypedArrayAttr::TypedArrayAttr;
+
+    /// Finds the smallest access that fits @p min_size with @p max_align .
+    ///
+    /// @retval nullptr               No fitting access found.
+    /// @retval AccessGranularityAttr Best access found.
+    [[nodiscard]] auto fitAccess(size_t min_size, size_t max_align = -1) const
+        -> AccessGranularityAttr;
+  };
+
+  using AccessGranularityMapAttr =
+      TypedMapAttr<Attribute, AccessGranularityListAttr>;
+
+  using FeatureAttr::FeatureAttr;
+
+  auto verify(EmitErrorFn emit_error) const -> LogicalResult;
+
+  [[nodiscard]] auto test(LoadStore requirements) const -> bool;
+
+  /// Gets a map from memory spaces to access granularities.
+  [[nodiscard]] auto getAccessGranularity() const -> AccessGranularityMapAttr {
+    return getAttr<AccessGranularityMapAttr>("access_granularity");
+  }
+  /// Gets the access granularities for @p memory_space .
+  [[nodiscard]] auto getAccessGranularity(Attribute memory_space) const
+      -> AccessGranularityListAttr {
+    if (const auto access_granularity = getAccessGranularity();
+        access_granularity) {
+      return access_granularity.getAttr(memory_space);
+    }
+    return {};
+  }
+};
+
 /// Indicates that the execution unit has SIMD lanes.
 struct SIMD : FeatureAttr<&KTDFArchDialect::getFeatureSIMDAttrName> {
   using LanesAttr = TypedMapAttr<TypeAttr, I64Attr>;
