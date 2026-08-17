@@ -7,23 +7,23 @@ ktdf_arch.device @compute_not_on_execution_unit {
 
 // -----
 
-ktdf_arch.device @load_store_not_on_execution_unit {
+ktdf_arch.device @load_not_on_execution_unit {
   // expected-error@+1 {{only valid on execution units}}
-  memory { kind="A", ktdf_arch.features = { ktdf_arch.feature.load_store } }
+  memory { kind="A", ktdf_arch.features = { ktdf_arch.feature.load } }
 }
 
 // -----
 
-ktdf_arch.device @load_store_invalid_access_granularity_map {
+ktdf_arch.device @load_invalid_access_granularity_map {
   // expected-error@+1 {{'access_granularity' requires map}}
-  exec_unit { ktdf_arch.features = { ktdf_arch.feature.load_store = { access_granularity = 1 } } }
+  exec_unit { ktdf_arch.features = { ktdf_arch.feature.load = { access_granularity = 1 } } }
 }
 
 // -----
 
-ktdf_arch.device @load_store_invalid_access_granularity {
+ktdf_arch.device @load_invalid_access_granularity {
   // expected-error@+1 {{'access_granularity["A"]' attribute 'size' requires 64-bit integer}}
-  exec_unit { ktdf_arch.features = { ktdf_arch.feature.load_store = { access_granularity = #ktdf_arch.map<"A" = [{size = 1 : i32}]> } } }
+  exec_unit { ktdf_arch.features = { ktdf_arch.feature.load = { access_granularity = #ktdf_arch.map<"A" = [{size = 1 : i32}]> } } }
 }
 
 // -----

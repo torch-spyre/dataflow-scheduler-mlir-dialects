@@ -41,6 +41,24 @@ auto emitIntrinsicError(Operation* op, const NamedAttribute& intrinsic)
   return op->emitError("'") << intrinsic.getName().strref() << "' intrisic ";
 }
 
+template <class Feature>
+auto verifyExecFeature(Operation* op, const NamedAttribute& attr)
+    -> LogicalResult {
+  const auto emit_error = [&]() -> InFlightDiagnostic {
+    return emitIntrinsicError(op, attr);
+  };
+
+  if (isa<KTDFArchDialect>(op->getDialect()) && !isa<ExecutionUnitOp>(op)) {
+    return emit_error() << "only valid on execution units";
+  }
+
+  const auto value = dyn_cast<Feature>(attr.getValue());
+  if (!value) {
+    return emit_error() << "requires unit or dictionary attribute";
+  }
+  return value.verify(emit_error);
+}
+
 }  // namespace
 
 //===----------------------------------------------------------------------===//
@@ -195,30 +213,11 @@ auto TransferGranularityAttr::contains(int64_t size) const -> bool {
 }
 
 //===----------------------------------------------------------------------===//
-// feature::Compute
+// AccessGranularityAttr
 //===----------------------------------------------------------------------===//
 
-auto KTDFArchDialect::verifyFeatureComputeAttr(Operation* op,
-                                               const NamedAttribute& attr)
+auto AccessGranularityAttr::verify(EmitErrorFn emit_error) const
     -> LogicalResult {
-  if (isa<KTDFArchDialect>(op->getDialect()) && !isa<ExecutionUnitOp>(op)) {
-    return emitIntrinsicError(op, attr) << "only valid on execution units";
-  }
-
-  return success();
-}
-
-auto KTDFArchDialect::testFeatureCompute(Attribute provided,
-                                         const Feature& required) -> bool {
-  return provided == required.getValue();
-}
-
-//===----------------------------------------------------------------------===//
-// feature::LoadStore
-//===----------------------------------------------------------------------===//
-
-auto feature::LoadStore::AccessGranularityAttr::verify(
-    EmitErrorFn emit_error) const -> LogicalResult {
   const auto size = DictionaryAttr::get("size");
   if (size && !isa<I64Attr>(size)) {
     return emit_error() << "attribute 'size' requires 64-bit integer";
@@ -232,8 +231,13 @@ auto feature::LoadStore::AccessGranularityAttr::verify(
   return success();
 }
 
-auto feature::LoadStore::AccessGranularityListAttr::fitAccess(
-    size_t min_size, size_t max_align) const -> AccessGranularityAttr {
+//===----------------------------------------------------------------------===//
+// AccessGranularityListAttr
+//===----------------------------------------------------------------------===//
+
+auto AccessGranularityListAttr::fitAccess(size_t min_size,
+                                          size_t max_align) const
+    -> AccessGranularityAttr {
   AccessGranularityAttr result;
   auto best_size = AccessGranularityAttr::kMaxSize;
   auto best_align = max_align;
@@ -270,8 +274,45 @@ auto feature::LoadStore::AccessGranularityListAttr::fitAccess(
   return result;
 }
 
-auto feature::LoadStore::verify(EmitErrorFn emit_error) const -> LogicalResult {
-  const auto access_granularity = getAttr("access_granularity");
+auto AccessGranularityListAttr::test(AccessGranularityListAttr required) const
+    -> bool {
+  return llvm::all_of(
+      required, [&](AccessGranularityAttr required_access) -> bool {
+        return fitAccess(required_access.getSize().value_or(1),
+                         required_access.getAlign().value_or(1)) != nullptr;
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// feature::Compute
+//===----------------------------------------------------------------------===//
+
+auto KTDFArchDialect::verifyFeatureComputeAttr(Operation* op,
+                                               const NamedAttribute& attr)
+    -> LogicalResult {
+  if (isa<KTDFArchDialect>(op->getDialect()) && !isa<ExecutionUnitOp>(op)) {
+    return emitIntrinsicError(op, attr) << "only valid on execution units";
+  }
+
+  return success();
+}
+
+auto KTDFArchDialect::testFeatureCompute(Attribute provided,
+                                         const Feature& required) -> bool {
+  return provided == required.getValue();
+}
+
+//===----------------------------------------------------------------------===//
+// feature::Load
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+template <auto Name>
+[[nodiscard]]
+auto verifyLoadStore(FeatureAttr<Name> value, EmitErrorFn emit_error)
+    -> LogicalResult {
+  const auto access_granularity = value.getAttr("access_granularity");
   if (access_granularity) {
     const auto typed = dyn_cast<AccessGranularityMapAttr>(access_granularity);
     if (!typed) {
@@ -295,7 +336,13 @@ auto feature::LoadStore::verify(EmitErrorFn emit_error) const -> LogicalResult {
   return success();
 }
 
-auto feature::LoadStore::test(LoadStore requirements) const -> bool {
+}  // namespace
+
+auto feature::Load::verify(EmitErrorFn emit_error) const -> LogicalResult {
+  return verifyLoadStore(*this, emit_error);
+}
+
+auto feature::Load::test(Load requirements) const -> bool {
   if (const auto required = requirements.getAccessGranularity(); required) {
     for (const auto [space, required_accesses] : required) {
       if (required_accesses.empty()) {
@@ -307,41 +354,23 @@ auto feature::LoadStore::test(LoadStore requirements) const -> bool {
         return false;
       }
 
-      for (const auto required_access : required_accesses) {
-        if (!provided_accesses.fitAccess(
-                required_access.getSize().value_or(1),
-                required_access.getAlign().value_or(1))) {
-          return false;
-        }
-      }
+      return provided_accesses.test(required_accesses);
     }
   }
 
   return true;
 }
 
-auto KTDFArchDialect::verifyFeatureLoadStoreAttr(Operation* op,
-                                                 const NamedAttribute& attr)
+auto KTDFArchDialect::verifyFeatureLoadAttr(Operation* op,
+                                            const NamedAttribute& attr)
     -> LogicalResult {
-  const auto emit_error = [&]() -> InFlightDiagnostic {
-    return emitIntrinsicError(op, attr);
-  };
-
-  if (isa<KTDFArchDialect>(op->getDialect()) && !isa<ExecutionUnitOp>(op)) {
-    return emit_error() << "only valid on execution units";
-  }
-
-  const auto value = dyn_cast<feature::LoadStore>(attr.getValue());
-  if (!value) {
-    return emit_error() << "requires unit or dictionary attribute";
-  }
-  return value.verify(emit_error);
+  return verifyExecFeature<feature::Load>(op, attr);
 }
 
-auto KTDFArchDialect::testFeatureLoadStore(Attribute provided,
-                                           const Feature& required) -> bool {
-  const auto required_value = cast<feature::LoadStore>(required.getValue());
-  const auto provided_value = cast<feature::LoadStore>(provided);
+auto KTDFArchDialect::testFeatureLoad(Attribute provided,
+                                      const Feature& required) -> bool {
+  const auto required_value = cast<feature::Load>(required.getValue());
+  const auto provided_value = cast<feature::Load>(provided);
 
   return provided_value.test(required_value);
 }
@@ -353,19 +382,7 @@ auto KTDFArchDialect::testFeatureLoadStore(Attribute provided,
 auto KTDFArchDialect::verifyFeatureSIMDAttr(Operation* op,
                                             const NamedAttribute& attr)
     -> LogicalResult {
-  const auto emit_error = [&]() -> InFlightDiagnostic {
-    return emitIntrinsicError(op, attr);
-  };
-
-  if (isa<KTDFArchDialect>(op->getDialect()) && !isa<ExecutionUnitOp>(op)) {
-    return emit_error() << "only valid on execution units";
-  }
-
-  const auto value = dyn_cast<feature::SIMD>(attr.getValue());
-  if (!value) {
-    return emit_error() << "requires unit or dictionary attribute";
-  }
-  return value.verify(emit_error);
+  return verifyExecFeature<feature::SIMD>(op, attr);
 }
 
 auto feature::SIMD::verify(EmitErrorFn emit_error) const -> LogicalResult {
@@ -422,6 +439,47 @@ auto feature::SIMD::test(feature::SIMD requirements) const -> bool {
   }
 
   return true;
+}
+
+//===----------------------------------------------------------------------===//
+// feature::Store
+//===----------------------------------------------------------------------===//
+
+auto feature::Store::verify(EmitErrorFn emit_error) const -> LogicalResult {
+  return verifyLoadStore(*this, emit_error);
+}
+
+auto feature::Store::test(Store requirements) const -> bool {
+  if (const auto required = requirements.getAccessGranularity(); required) {
+    for (const auto [space, required_accesses] : required) {
+      if (required_accesses.empty()) {
+        continue;
+      }
+
+      const auto provided_accesses = getAccessGranularity(space);
+      if (!provided_accesses) {
+        return false;
+      }
+
+      return provided_accesses.test(required_accesses);
+    }
+  }
+
+  return true;
+}
+
+auto KTDFArchDialect::verifyFeatureStoreAttr(Operation* op,
+                                             const NamedAttribute& attr)
+    -> LogicalResult {
+  return verifyExecFeature<feature::Store>(op, attr);
+}
+
+auto KTDFArchDialect::testFeatureStore(Attribute provided,
+                                       const Feature& required) -> bool {
+  const auto required_value = cast<feature::Store>(required.getValue());
+  const auto provided_value = cast<feature::Store>(provided);
+
+  return provided_value.test(required_value);
 }
 
 //===----------------------------------------------------------------------===//
