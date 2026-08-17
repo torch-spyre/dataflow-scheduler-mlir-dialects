@@ -218,14 +218,15 @@ auto TransferGranularityAttr::contains(int64_t size) const -> bool {
 
 auto AccessGranularityAttr::verify(EmitErrorFn emit_error) const
     -> LogicalResult {
-  const auto size = DictionaryAttr::get("size");
-  if (size && !isa<I64Attr>(size)) {
-    return emit_error() << "attribute 'size' requires 64-bit integer";
+  if (!isa_and_present<I64Attr>(DictionaryAttr::get(kSizeAttrName))) {
+    return emit_error() << "attribute '" << kSizeAttrName
+                        << "' requires 64-bit integer";
   }
 
-  const auto align = DictionaryAttr::get("align");
+  const auto align = DictionaryAttr::get(kAlignAttrName);
   if (align && !isa<I64Attr>(align)) {
-    return emit_error() << "attribute 'align' requires 64-bit integer";
+    return emit_error() << "attribute '" << kAlignAttrName
+                        << "' requires 64-bit integer";
   }
 
   return success();
@@ -244,15 +245,13 @@ auto AccessGranularityListAttr::fitAccess(size_t min_size,
 
   for (const auto access : getValue()) {
     // Filter by size requirement.
-    const auto size =
-        access.getSize().value_or(AccessGranularityAttr::kMaxSize);
+    const auto size = access.getSize();
     if (size < min_size) {
       continue;
     }
 
     // Filter by alignment requirement.
-    const auto align =
-        access.getAlign().value_or(AccessGranularityAttr::kMinAlign);
+    const auto align = access.getAlign();
     if (align > max_align) {
       continue;
     }
@@ -276,11 +275,11 @@ auto AccessGranularityListAttr::fitAccess(size_t min_size,
 
 auto AccessGranularityListAttr::test(AccessGranularityListAttr required) const
     -> bool {
-  return llvm::all_of(
-      required, [&](AccessGranularityAttr required_access) -> bool {
-        return fitAccess(required_access.getSize().value_or(1),
-                         required_access.getAlign().value_or(1)) != nullptr;
-      });
+  return llvm::all_of(required,
+                      [&](AccessGranularityAttr required_access) -> bool {
+                        return fitAccess(required_access.getSize(),
+                                         required_access.getAlign()) != nullptr;
+                      });
 }
 
 //===----------------------------------------------------------------------===//
@@ -312,18 +311,22 @@ template <auto Name>
 [[nodiscard]]
 auto verifyLoadStore(FeatureAttr<Name> value, EmitErrorFn emit_error)
     -> LogicalResult {
-  const auto access_granularity = value.getAttr("access_granularity");
+  const auto access_granularity =
+      value.getAttr(feature::Load::kAccessGranularityAttrName);
   if (access_granularity) {
     const auto typed = dyn_cast<AccessGranularityMapAttr>(access_granularity);
     if (!typed) {
-      return emit_error() << "attribute 'access_granularity' requires map from "
+      return emit_error() << "attribute '"
+                          << feature::Load::kAccessGranularityAttrName
+                          << "' requires map from "
                              "attribute to array of dictionary attribtues";
     }
 
     for (const auto entry : typed) {
       const auto emit_space_error = [&]() {
         return emit_error()
-               << "attribute 'access_granularity[" << entry.first << "]' ";
+               << "attribute '" << feature::Load::kAccessGranularityAttrName
+               << "[" << entry.first << "]' ";
       };
       for (const auto access : entry.second) {
         if (failed(access.verify(emit_space_error))) {
@@ -386,20 +389,21 @@ auto KTDFArchDialect::verifyFeatureSIMDAttr(Operation* op,
 }
 
 auto feature::SIMD::verify(EmitErrorFn emit_error) const -> LogicalResult {
-  const auto splat = getAttr("splat");
+  const auto splat = getAttr(kSplatAttrName);
   if (splat && !isa<UnitAttr>(splat)) {
-    return emit_error() << "attribute 'splat' requires unit";
+    return emit_error() << "attribute '" << kSplatAttrName << "' requires unit";
   }
 
-  const auto zero_pad = getAttr("zero_pad");
+  const auto zero_pad = getAttr(kZeroPadAttrName);
   if (zero_pad && !isa<UnitAttr>(zero_pad)) {
-    return emit_error() << "attribute 'zero_pad' requires unit";
+    return emit_error() << "attribute '" << kZeroPadAttrName
+                        << "' requires unit";
   }
 
-  const auto lanes = getAttr("lanes");
+  const auto lanes = getAttr(kLanesAttrName);
   if (lanes && !isa<LanesAttr>(lanes)) {
-    return emit_error()
-           << "attribute 'lanes' requires map from type to 64-bit integer";
+    return emit_error() << "attribute '" << kLanesAttrName
+                        << "' requires map from type to 64-bit integer";
   }
 
   return success();
@@ -505,25 +509,28 @@ auto KTDFArchDialect::verifyFeatureQueueAttr(Operation* op,
 }
 
 auto feature::Queue::verify(EmitErrorFn emit_error) const -> LogicalResult {
-  const auto ordered = getAttr("ordered");
+  const auto ordered = getAttr(kOrderedAttrName);
   if (ordered && !isa<UnitAttr>(ordered)) {
-    return emit_error() << "attribute 'ordered' requires unit";
+    return emit_error() << "attribute '" << kOrderedAttrName
+                        << "' requires unit";
   }
 
   if (const auto maybe_size = getSize(); maybe_size) {
     if (*maybe_size <= 0) {
-      return emit_error() << "'size' must be > 0";
+      return emit_error() << "'" << kSizeAttrName << "' must be > 0";
     }
-  } else if (getAttr("size")) {
-    return emit_error() << "attribute 'size' requires 64-bit integer";
+  } else if (getAttr(kSizeAttrName)) {
+    return emit_error() << "attribute '" << kSizeAttrName
+                        << "' requires 64-bit integer";
   }
 
   if (const auto maybe_depth = getDepth(); maybe_depth) {
     if (*maybe_depth <= 0) {
-      return emit_error() << "'depth' must be > 0";
+      return emit_error() << "'" << kDepthAttrName << "' must be > 0";
     }
-  } else if (getAttr("depth")) {
-    return emit_error() << "attribute 'depth' requires 64-bit integer";
+  } else if (getAttr(kDepthAttrName)) {
+    return emit_error() << "attribute '" << kDepthAttrName
+                        << "' requires 64-bit integer";
   }
 
   return success();

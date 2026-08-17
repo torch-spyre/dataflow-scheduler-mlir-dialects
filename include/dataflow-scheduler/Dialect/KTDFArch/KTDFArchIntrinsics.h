@@ -23,6 +23,7 @@
 #ifndef DATAFLOW_SCHEDULER_DIALECT_KTDFARCH_KTDFARCHINTRINSICS_H_
 #define DATAFLOW_SCHEDULER_DIALECT_KTDFARCH_KTDFARCHINTRINSICS_H_
 
+#include <llvm/ADT/StringRef.h>
 #include <mlir/IR/Attributes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/Diagnostics.h>
@@ -171,24 +172,24 @@ struct TransferGranularityAttr
 struct AccessGranularityAttr : DictionaryAttr {
   static constexpr size_t kMaxSize = SIZE_MAX;
   static constexpr size_t kMinAlign = 1;
+  static constexpr StringLiteral kSizeAttrName = "size";
+  static constexpr StringLiteral kAlignAttrName = "align";
 
   using DictionaryAttr::DictionaryAttr;
 
   auto verify(EmitErrorFn emit_error) const -> LogicalResult;
 
   /// Gets the access size in bytes.
-  [[nodiscard]] auto getSize() const -> std::optional<size_t> {
-    if (const auto attr = DictionaryAttr::getAs<I64Attr>("size"); attr) {
-      return attr.getValue();
-    }
-    return std::nullopt;
+  [[nodiscard]] auto getSize() const -> size_t {
+    return DictionaryAttr::getAs<I64Attr>(kSizeAttrName).getValue();
   }
   /// Gets the access alignment in bytes.
-  [[nodiscard]] auto getAlign() const -> std::optional<size_t> {
-    if (const auto attr = DictionaryAttr::getAs<I64Attr>("align"); attr) {
+  [[nodiscard]] auto getAlign() const -> size_t {
+    if (const auto attr = DictionaryAttr::getAs<I64Attr>(kAlignAttrName);
+        attr) {
       return attr.getValue();
     }
-    return std::nullopt;
+    return kMinAlign;
   }
 };
 
@@ -226,6 +227,9 @@ struct Compute : FeatureAttr<&KTDFArchDialect::getFeatureComputeAttrName> {
 
 // Indicates that the execution unit can perform load operations.
 struct Load : FeatureAttr<&KTDFArchDialect::getFeatureLoadAttrName> {
+  static constexpr StringLiteral kAccessGranularityAttrName =
+      "access_granularity";
+
   using FeatureAttr::FeatureAttr;
 
   auto verify(EmitErrorFn emit_error) const -> LogicalResult;
@@ -234,7 +238,7 @@ struct Load : FeatureAttr<&KTDFArchDialect::getFeatureLoadAttrName> {
 
   /// Gets a map from memory spaces to access granularities.
   [[nodiscard]] auto getAccessGranularity() const -> AccessGranularityMapAttr {
-    return getAttr<AccessGranularityMapAttr>("access_granularity");
+    return getAttr<AccessGranularityMapAttr>(kAccessGranularityAttrName);
   }
   /// Gets the access granularities for @p memory_space .
   [[nodiscard]] auto getAccessGranularity(Attribute memory_space) const
@@ -249,6 +253,10 @@ struct Load : FeatureAttr<&KTDFArchDialect::getFeatureLoadAttrName> {
 
 /// Indicates that the execution unit has SIMD lanes.
 struct SIMD : FeatureAttr<&KTDFArchDialect::getFeatureSIMDAttrName> {
+  static constexpr StringLiteral kSplatAttrName = "splat";
+  static constexpr StringLiteral kZeroPadAttrName = "zero_pad";
+  static constexpr StringLiteral kLanesAttrName = "lanes";
+
   using LanesAttr = TypedMapAttr<TypeAttr, I64Attr>;
 
   using FeatureAttr::FeatureAttr;
@@ -259,17 +267,17 @@ struct SIMD : FeatureAttr<&KTDFArchDialect::getFeatureSIMDAttrName> {
 
   /// Determines whether the unit can form splat vectors.
   [[nodiscard]] auto canSplat() const -> bool {
-    return getAttr<UnitAttr>("splat") != nullptr;
+    return getAttr<UnitAttr>(kSplatAttrName) != nullptr;
   }
 
   /// Determines whether the unit can pad vectors with zeros.
   [[nodiscard]] auto canZeroPad() const -> bool {
-    return getAttr<UnitAttr>("zero_pad") != nullptr;
+    return getAttr<UnitAttr>(kZeroPadAttrName) != nullptr;
   }
 
   /// Gets the number of lanes per scalar type.
   [[nodiscard]] auto getLanes() const -> LanesAttr {
-    return getAttr<LanesAttr>("lanes");
+    return getAttr<LanesAttr>(kLanesAttrName);
   }
   /// Gets the number of lanes for @p scalar_type .
   ///
@@ -292,7 +300,7 @@ struct Store : FeatureAttr<&KTDFArchDialect::getFeatureStoreAttrName> {
 
   /// Gets a map from memory spaces to access granularities.
   [[nodiscard]] auto getAccessGranularity() const -> AccessGranularityMapAttr {
-    return getAttr<AccessGranularityMapAttr>("access_granularity");
+    return getAttr<AccessGranularityMapAttr>(Load::kAccessGranularityAttrName);
   }
   /// Gets the access granularities for @p memory_space .
   [[nodiscard]] auto getAccessGranularity(Attribute memory_space) const
@@ -307,6 +315,10 @@ struct Store : FeatureAttr<&KTDFArchDialect::getFeatureStoreAttrName> {
 
 /// Indicates that the link can have multiple transactions in flight.
 struct Queue : FeatureAttr<&KTDFArchDialect::getFeatureQueueAttrName> {
+  static constexpr StringLiteral kOrderedAttrName = "ordered";
+  static constexpr StringLiteral kSizeAttrName = "size";
+  static constexpr StringLiteral kDepthAttrName = "depth";
+
   using FeatureAttr::FeatureAttr;
 
   auto verify(EmitErrorFn emit_error) const -> LogicalResult;
@@ -315,17 +327,17 @@ struct Queue : FeatureAttr<&KTDFArchDialect::getFeatureQueueAttrName> {
 
   /// Gets a value indicating whether the transactions must complete in order.
   [[nodiscard]] auto isOrdered() const -> bool {
-    return getAttr<UnitAttr>("ordered") != nullptr;
+    return getAttr<UnitAttr>(kOrderedAttrName) != nullptr;
   }
 
   /// Gets a value indicating the total size of in flight transactions.
   [[nodiscard]] auto getSize() const -> std::optional<int64_t> {
-    return getValue<I64Attr>("size");
+    return getValue<I64Attr>(kSizeAttrName);
   }
 
   /// Gets a value indicating how many transactions can be in flight.
   [[nodiscard]] auto getDepth() const -> std::optional<int64_t> {
-    return getValue<I64Attr>("depth");
+    return getValue<I64Attr>(kDepthAttrName);
   }
 };
 
