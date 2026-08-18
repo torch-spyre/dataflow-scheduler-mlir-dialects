@@ -14,6 +14,20 @@ ktdf_arch.device @load_not_on_execution_unit {
 
 // -----
 
+ktdf_arch.device @load_invalid_word_size_map {
+  // expected-error@+1 {{'word_size' requires map}}
+  exec_unit { ktdf_arch.features = { ktdf_arch.feature.load = { word_size = 1 } } }
+}
+
+// -----
+
+ktdf_arch.device @load_invalid_word_size_invalid {
+  // expected-error@+1 {{'word_size["A"]' must be >= 0}}
+  exec_unit { ktdf_arch.features = { ktdf_arch.feature.load = { word_size = #ktdf_arch.map<"A" = -1> } } }
+}
+
+// -----
+
 ktdf_arch.device @load_invalid_access_granularity_map {
   // expected-error@+1 {{'access_granularity' requires map}}
   exec_unit { ktdf_arch.features = { ktdf_arch.feature.load = { access_granularity = 1 } } }
@@ -21,9 +35,23 @@ ktdf_arch.device @load_invalid_access_granularity_map {
 
 // -----
 
-ktdf_arch.device @load_invalid_access_granularity {
+ktdf_arch.device @load_invalid_size_type {
   // expected-error@+1 {{'access_granularity["A"]' attribute 'size_in_words' requires 64-bit integer}}
   exec_unit { ktdf_arch.features = { ktdf_arch.feature.load = { access_granularity = #ktdf_arch.map<"A" = [{size_in_words = 1 : i32}]> } } }
+}
+
+// -----
+
+ktdf_arch.device @load_invalid_size {
+  // expected-error@+1 {{'access_granularity["A"]' attribute 'size_in_words' must be >= 0}}
+  exec_unit { ktdf_arch.features = { ktdf_arch.feature.load = { access_granularity = #ktdf_arch.map<"A" = [{size_in_words = -1}]> } } }
+}
+
+// -----
+
+ktdf_arch.device @load_invalid_align {
+  // expected-error@+1 {{'access_granularity["A"]' attribute 'align_in_words' must be >= 0}}
+  exec_unit { ktdf_arch.features = { ktdf_arch.feature.load = { access_granularity = #ktdf_arch.map<"A" = [{size_in_words = 1, align_in_words = 0}]> } } }
 }
 
 // -----

@@ -24,6 +24,7 @@
 #include <mlir/IR/Attributes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/Diagnostics.h>
+#include <mlir/Support/LLVM.h>
 
 #include <cstdint>
 
@@ -218,15 +219,27 @@ auto TransferGranularityAttr::contains(int64_t size) const -> bool {
 
 auto AccessGranularityAttr::verify(EmitErrorFn emit_error) const
     -> LogicalResult {
-  if (!isa_and_present<I64Attr>(DictionaryAttr::get(kSizeAttrName))) {
+  const auto size =
+      dyn_cast_if_present<I64Attr>(DictionaryAttr::get(kSizeAttrName));
+  if (!size) {
     return emit_error() << "attribute '" << kSizeAttrName
                         << "' requires 64-bit integer";
   }
+  if (size.getValue() <= 0) {
+    return emit_error() << "attribute '" << kSizeAttrName << "' must be >= 0";
+  }
 
   const auto align = DictionaryAttr::get(kAlignAttrName);
-  if (align && !isa<I64Attr>(align)) {
-    return emit_error() << "attribute '" << kAlignAttrName
-                        << "' requires 64-bit integer";
+  if (align) {
+    const auto typed = dyn_cast<I64Attr>(align);
+    if (!typed) {
+      return emit_error() << "attribute '" << kAlignAttrName
+                          << "' requires 64-bit integer";
+    }
+    if (typed.getValue() <= 0) {
+      return emit_error() << "attribute '" << kAlignAttrName
+                          << "' must be >= 0";
+    }
   }
 
   return success();
@@ -289,22 +302,35 @@ auto AccessGranularityListAttr::test(AccessGranularityListAttr required) const
 //===----------------------------------------------------------------------===//
 
 auto LoadStoreAttr::verify(EmitErrorFn emit_error) const -> LogicalResult {
-  const auto access_granularity =
-      getAttr(feature::Load::kAccessGranularityAttrName);
+  const auto word_size = getAttr(kWordSizeAttrName);
+  if (word_size) {
+    const auto typed = dyn_cast<WordSizeMapAttr>(word_size);
+    if (!typed) {
+      return emit_error() << "attribute '" << kWordSizeAttrName
+                          << "' requires map from attribute to 64-bit integer";
+    }
+
+    for (auto [space, size] : typed) {
+      if (size.getValue() <= 0) {
+        return emit_error() << "attribute '" << kWordSizeAttrName << "["
+                            << space << "]' must be >= 0";
+      }
+    }
+  }
+
+  const auto access_granularity = getAttr(kAccessGranularityAttrName);
   if (access_granularity) {
     const auto typed = dyn_cast<AccessGranularityMapAttr>(access_granularity);
     if (!typed) {
-      return emit_error() << "attribute '"
-                          << feature::Load::kAccessGranularityAttrName
+      return emit_error() << "attribute '" << kAccessGranularityAttrName
                           << "' requires map from "
                              "attribute to array of dictionary attribtues";
     }
 
     for (const auto entry : typed) {
       const auto emit_space_error = [&]() {
-        return emit_error()
-               << "attribute '" << feature::Load::kAccessGranularityAttrName
-               << "[" << entry.first << "]' ";
+        return emit_error() << "attribute '" << kAccessGranularityAttrName
+                            << "[" << entry.first << "]' ";
       };
       for (const auto access : entry.second) {
         if (failed(access.verify(emit_space_error))) {
