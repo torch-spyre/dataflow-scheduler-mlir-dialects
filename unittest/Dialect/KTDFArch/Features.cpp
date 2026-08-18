@@ -74,29 +74,38 @@ TEST_CASE("mlir::ktdf_arch::feature::Load") {
         "{ access_granularity = #ktdf_arch.map<\"A\" = []> }"));
     CHECK(testFeature<feature::Load>(
         &context,
-        "{ access_granularity = #ktdf_arch.map<\"A\" = [{ size = 1 }]> }",
-        "{ access_granularity = #ktdf_arch.map<\"A\" = [{ size = 1 }]> }"));
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size_in_words = 1}]> "
+        "}",
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size_in_words = 1}]> "
+        "}"));
+    CHECK(testFeature<feature::Load>(
+        &context, "{ }", "{ word_size = #ktdf_arch.map<\"A\" = 1> }"));
+    CHECK(testFeature<feature::Load>(
+        &context, "{ word_size = #ktdf_arch.map<> }",
+        "{ word_size = #ktdf_arch.map<\"A\" = 1> }"));
 
     CHECK_FALSE(testFeature<feature::Load>(
         &context, "{ }",
         "{ access_granularity = #ktdf_arch.map<\"A\" = [{}]> }"));
     CHECK_FALSE(testFeature<feature::Load>(
         &context,
-        "{ access_granularity = #ktdf_arch.map<\"A\" = [{ size = 8, align = "
-        "8}]> }",
-        "{ access_granularity = #ktdf_arch.map<\"A\" = [{ size = 8, align = "
-        "1}]> }"));
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size_in_words = 8, "
+        "align_in_words = 8}]> }",
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size_in_words = 8, "
+        "align_in_words = 1}]> }"));
     CHECK_FALSE(testFeature<feature::Load>(
         &context,
-        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size = 1}]> }",
-        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size = 8}]> }"));
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size_in_words = 1}]> "
+        "}",
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size_in_words = 8}]> "
+        "}"));
 
     CHECK(testFeature<feature::Load>(
         &context,
-        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size = 8, align = "
-        "4}]> }",
-        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size = 4, align = "
-        "8}]> }"));
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size_in_words = 8, "
+        "align_in_words = 4}]> }",
+        "{ access_granularity = #ktdf_arch.map<\"A\" = [{size_in_words = 4, "
+        "align_in_words = 8}]> }"));
   }
 }
 

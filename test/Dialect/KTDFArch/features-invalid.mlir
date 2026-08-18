@@ -22,8 +22,8 @@ ktdf_arch.device @load_invalid_access_granularity_map {
 // -----
 
 ktdf_arch.device @load_invalid_access_granularity {
-  // expected-error@+1 {{'access_granularity["A"]' attribute 'size' requires 64-bit integer}}
-  exec_unit { ktdf_arch.features = { ktdf_arch.feature.load = { access_granularity = #ktdf_arch.map<"A" = [{size = 1 : i32}]> } } }
+  // expected-error@+1 {{'access_granularity["A"]' attribute 'size_in_words' requires 64-bit integer}}
+  exec_unit { ktdf_arch.features = { ktdf_arch.feature.load = { access_granularity = #ktdf_arch.map<"A" = [{size_in_words = 1 : i32}]> } } }
 }
 
 // -----

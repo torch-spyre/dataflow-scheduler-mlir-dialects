@@ -37,41 +37,25 @@ namespace mlir::ktdf_arch {
 using GetAttrNameFn = StringAttr (KTDFArchDialect::*)() const;
 using EmitErrorFn = function_ref<InFlightDiagnostic()>;
 
-/// Base class for intrinsic attributes.
-///
-/// @tparam GetAttrName     Pointer to the cached name getter in the dialect.
-/// @tparam AttrConstraint  Underlying attribute type constraint.
-template <GetAttrNameFn GetAttrName, class AttrConstraint = Attribute>
-struct IntrinsicAttr : AttrConstraint {
-  static_assert(std::is_base_of_v<Attribute, AttrConstraint>);
-
-  [[nodiscard]] static auto classof(Attribute attr) -> bool {
-    return isa<AttrConstraint>(attr);
-  }
-
-  using AttrConstraint::AttrConstraint;
-
-  /// Gets the cached attribute name.
-  [[nodiscard]] static auto getAttrName(MLIRContext* context) -> StringAttr {
-    const auto* dialect = context->getLoadedDialect<KTDFArchDialect>();
-    return (dialect->*GetAttrName)();
-  }
-  /// Gets the cached attribute name.
-  [[nodiscard]] auto getAttrName() const -> StringAttr {
-    return getAttrName(static_cast<const Attribute&>(*this).getContext());
-  }
-};
-
-/// Base class for intrinsic features.
-///
-/// @tparam GetAttrName     Pointer to the cached name getter in the dialect.
-template <GetAttrNameFn GetAttrName>
-struct FeatureAttr : IntrinsicAttr<GetAttrName> {
+/// Non-templated base class for feature attributes.
+struct FeatureAttrBase : Attribute {
   [[nodiscard]] static auto classof(Attribute attr) -> bool {
     return isa<UnitAttr, DictionaryAttr>(attr);
   }
+  [[nodiscard]] static auto classof(UnitAttr /*attr*/) -> bool { return true; }
+  [[nodiscard]] static auto classof(DictionaryAttr /*attr*/) -> bool {
+    return true;
+  }
 
-  using IntrinsicAttr<GetAttrName>::IntrinsicAttr;
+  using Attribute::Attribute;
+
+  /*implicit*/ FeatureAttrBase(UnitAttr attr) : Attribute(attr.getImpl()) {}
+  /*implicit*/ FeatureAttrBase(DictionaryAttr attr) : Attribute(attr) {}
+
+  /// Verifies this feature attribute.
+  [[nodiscard]] auto verify(EmitErrorFn /*emit_error*/) const -> LogicalResult {
+    return success();
+  }
 
   /// Determines whether this feature satisfies @p requirements .
   [[nodiscard]] auto test(Attribute requirements) const -> bool {
@@ -101,6 +85,40 @@ struct FeatureAttr : IntrinsicAttr<GetAttrName> {
 
     return std::nullopt;
   }
+};
+
+/// Base class for intrinsic attributes.
+///
+/// @tparam GetAttrName     Pointer to the cached name getter in the dialect.
+/// @tparam AttrConstraint  Underlying attribute type constraint.
+template <GetAttrNameFn GetAttrName, class AttrConstraint = Attribute>
+struct IntrinsicAttr : AttrConstraint {
+  static_assert(std::is_base_of_v<Attribute, AttrConstraint>);
+
+  [[nodiscard]] static auto classof(Attribute attr) -> bool {
+    return isa<AttrConstraint>(attr);
+  }
+
+  using AttrConstraint::AttrConstraint;
+
+  /// Gets the cached attribute name.
+  [[nodiscard]] static auto getAttrName(MLIRContext* context) -> StringAttr {
+    const auto* dialect = context->getLoadedDialect<KTDFArchDialect>();
+    return (dialect->*GetAttrName)();
+  }
+  /// Gets the cached attribute name.
+  [[nodiscard]] auto getAttrName() const -> StringAttr {
+    return getAttrName(static_cast<const Attribute&>(*this).getContext());
+  }
+};
+
+/// Base class for intrinsic features.
+///
+/// @tparam GetAttrName     Pointer to the cached name getter in the dialect.
+/// @tparam AttrConstaint   Underlying attribute type constraint.
+template <GetAttrNameFn GetAttrName, class AttrConstraint = FeatureAttrBase>
+struct FeatureAttr : IntrinsicAttr<GetAttrName, AttrConstraint> {
+  using IntrinsicAttr<GetAttrName, AttrConstraint>::IntrinsicAttr;
 };
 
 //===----------------------------------------------------------------------===//
@@ -172,19 +190,20 @@ struct TransferGranularityAttr
 struct AccessGranularityAttr : DictionaryAttr {
   static constexpr size_t kMaxSize = SIZE_MAX;
   static constexpr size_t kMinAlign = 1;
-  static constexpr StringLiteral kSizeAttrName = "size";
-  static constexpr StringLiteral kAlignAttrName = "align";
+  static constexpr size_t kMaxAlign = SIZE_MAX;
+  static constexpr StringLiteral kSizeAttrName = "size_in_words";
+  static constexpr StringLiteral kAlignAttrName = "align_in_words";
 
   using DictionaryAttr::DictionaryAttr;
 
   auto verify(EmitErrorFn emit_error) const -> LogicalResult;
 
-  /// Gets the access size in bytes.
-  [[nodiscard]] auto getSize() const -> size_t {
+  /// Gets the access size in data words.
+  [[nodiscard]] auto getSizeInWords() const -> size_t {
     return DictionaryAttr::getAs<I64Attr>(kSizeAttrName).getValue();
   }
-  /// Gets the access alignment in bytes.
-  [[nodiscard]] auto getAlign() const -> size_t {
+  /// Gets the access alignment in data words.
+  [[nodiscard]] auto getAlignInWords() const -> size_t {
     if (const auto attr = DictionaryAttr::getAs<I64Attr>(kAlignAttrName);
         attr) {
       return attr.getValue();
@@ -197,14 +216,21 @@ struct AccessGranularityAttr : DictionaryAttr {
 struct AccessGranularityListAttr : TypedArrayAttr<AccessGranularityAttr> {
   using TypedArrayAttr::TypedArrayAttr;
 
-  /// Finds the smallest access that fits @p min_size with @p max_align .
+  /// Finds the smallest access that fits @p min_size_in_words with
+  /// @p max_align_in_words .
   ///
   /// If there are multiple candidates of exact @p min_size , then the
   /// candidate with the smallest (most permissive) alignment is chosen.
   ///
+  /// @param  min_size_in_words     Minimum transfer size in data words.
+  /// @param  max_align_in_words    Maximum address alignment in data words
+  ///                               (defaults to the most permissive alignment).
+  ///
   /// @retval nullptr               No fitting access found.
   /// @retval AccessGranularityAttr Best access found.
-  [[nodiscard]] auto fitAccess(size_t min_size, size_t max_align = -1) const
+  [[nodiscard]] auto fitAccess(
+      size_t min_size_in_words,
+      size_t max_align_in_words = AccessGranularityAttr::kMaxAlign) const
       -> AccessGranularityAttr;
 
   [[nodiscard]] auto test(AccessGranularityListAttr required) const -> bool;
@@ -213,6 +239,47 @@ struct AccessGranularityListAttr : TypedArrayAttr<AccessGranularityAttr> {
 /// Maps memory spaces to lists of memory accesses.
 using AccessGranularityMapAttr =
     TypedMapAttr<Attribute, AccessGranularityListAttr>;
+
+/// Holds information shared between the load & store feature.
+struct LoadStoreAttr : FeatureAttrBase {
+  static constexpr StringLiteral kAccessGranularityAttrName =
+      "access_granularity";
+  static constexpr StringLiteral kWordSizeAttrName = "word_size";
+
+  using WordSizeMapAttr = TypedMapAttr<Attribute, I64Attr>;
+
+  using FeatureAttrBase::FeatureAttrBase;
+
+  auto verify(EmitErrorFn emit_error) const -> LogicalResult;
+
+  [[nodiscard]] auto test(LoadStoreAttr requirements) const -> bool;
+
+  /// Gets a map from memory spaces to access granularities.
+  [[nodiscard]] auto getAccessGranularity() const -> AccessGranularityMapAttr {
+    return getAttr<AccessGranularityMapAttr>(kAccessGranularityAttrName);
+  }
+  /// Gets the access granularities for @p memory_space .
+  [[nodiscard]] auto getAccessGranularity(Attribute memory_space) const
+      -> AccessGranularityListAttr {
+    if (const auto access_granularity = getAccessGranularity();
+        access_granularity) {
+      return access_granularity.getAttr(memory_space);
+    }
+    return nullptr;
+  }
+
+  /// Gets a map from memory spaces to data word sizes.
+  [[nodiscard]] auto getWordSize() const -> WordSizeMapAttr {
+    return getAttr<WordSizeMapAttr>(kWordSizeAttrName);
+  }
+  /// Gets the data word size for @p memory_space .
+  [[nodiscard]] auto getWordSize(Attribute memory_space) const -> size_t {
+    if (const auto word_size = getWordSize(); word_size) {
+      return static_cast<size_t>(word_size.getValue(memory_space).value_or(1));
+    }
+    return 1;
+  }
+};
 
 //===----------------------------------------------------------------------===//
 // Intrinsic Features
@@ -226,29 +293,9 @@ struct Compute : FeatureAttr<&KTDFArchDialect::getFeatureComputeAttrName> {
 };
 
 // Indicates that the execution unit can perform load operations.
-struct Load : FeatureAttr<&KTDFArchDialect::getFeatureLoadAttrName> {
-  static constexpr StringLiteral kAccessGranularityAttrName =
-      "access_granularity";
-
+struct Load
+    : FeatureAttr<&KTDFArchDialect::getFeatureLoadAttrName, LoadStoreAttr> {
   using FeatureAttr::FeatureAttr;
-
-  auto verify(EmitErrorFn emit_error) const -> LogicalResult;
-
-  [[nodiscard]] auto test(Load requirements) const -> bool;
-
-  /// Gets a map from memory spaces to access granularities.
-  [[nodiscard]] auto getAccessGranularity() const -> AccessGranularityMapAttr {
-    return getAttr<AccessGranularityMapAttr>(kAccessGranularityAttrName);
-  }
-  /// Gets the access granularities for @p memory_space .
-  [[nodiscard]] auto getAccessGranularity(Attribute memory_space) const
-      -> AccessGranularityListAttr {
-    if (const auto access_granularity = getAccessGranularity();
-        access_granularity) {
-      return access_granularity.getAttr(memory_space);
-    }
-    return {};
-  }
 };
 
 /// Indicates that the execution unit has SIMD lanes.
@@ -291,26 +338,9 @@ struct SIMD : FeatureAttr<&KTDFArchDialect::getFeatureSIMDAttrName> {
 };
 
 // Indicates that the execution unit can perform store operations.
-struct Store : FeatureAttr<&KTDFArchDialect::getFeatureStoreAttrName> {
+struct Store
+    : FeatureAttr<&KTDFArchDialect::getFeatureStoreAttrName, LoadStoreAttr> {
   using FeatureAttr::FeatureAttr;
-
-  auto verify(EmitErrorFn emit_error) const -> LogicalResult;
-
-  [[nodiscard]] auto test(Store requirements) const -> bool;
-
-  /// Gets a map from memory spaces to access granularities.
-  [[nodiscard]] auto getAccessGranularity() const -> AccessGranularityMapAttr {
-    return getAttr<AccessGranularityMapAttr>(Load::kAccessGranularityAttrName);
-  }
-  /// Gets the access granularities for @p memory_space .
-  [[nodiscard]] auto getAccessGranularity(Attribute memory_space) const
-      -> AccessGranularityListAttr {
-    if (const auto access_granularity = getAccessGranularity();
-        access_granularity) {
-      return access_granularity.getAttr(memory_space);
-    }
-    return {};
-  }
 };
 
 /// Indicates that the link can have multiple transactions in flight.
