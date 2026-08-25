@@ -39,10 +39,14 @@ def ApplyPatternsPass : Pass<"ktdfarch-apply-patterns", "func::FuncOp"> {
   ];
 
   let dependentDialects = [
-    "mlir::ktdf_arch::KTDFArchDialect", 
+    "mlir::ktdf_arch::KTDFArchDialect",
     "mlir::func::FuncDialect",
     "mlir::pdl::PDLDialect",
-    "mlir::pdl_interp::PDLInterpDialect"
+    "mlir::pdl_interp::PDLInterpDialect",
+    "mlir::agen::AgenDialect",
+    "mlir::vectorchain::VectorChainDialect",
+    "mlir::arith::ArithDialect",
+    "mlir::memref::MemRefDialect"
   ];
 }
 

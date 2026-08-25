@@ -14,10 +14,14 @@ add_dataflow_scheduler_dialects_library(DataflowSchedulerDialectsKTDFArchTransfo
   LINK_LIBS PUBLIC
     DataflowSchedulerDialects::KTDFArchDialect
     DataflowSchedulerDialects::KTDFArchAnalysis
+    DataflowSchedulerDialects::AgenDialect
+    DataflowSchedulerDialects::VectorChainDialect
 
   LINK_MLIR_LIBS
     MLIRFuncDialect
     MLIRIR
+    MLIRArithDialect
+    MLIRMemRefDialect
     MLIRPass
     MLIRRewrite
     MLIRPDLDialect
