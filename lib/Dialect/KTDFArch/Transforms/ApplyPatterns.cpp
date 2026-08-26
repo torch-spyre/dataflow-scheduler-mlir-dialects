@@ -21,6 +21,12 @@
 #include "dataflow-scheduler/Dialect/Agen/Agen.h"
 #include "dataflow-scheduler/Dialect/VectorChain/VectorChain.h"
 
+#ifdef DATAFLOW_SCHEDULER_ENABLE_KTIR
+#include "ktir/Dialect/KTDP/KTDPDialect.h"
+#include "ktir/Dialect/SpyreOp/SpyreOpAttrs.h"
+#include "ktir/Dialect/SpyreOp/SpyreOpDialect.h"
+#endif
+
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/Support/DebugLog.h>
@@ -73,7 +79,17 @@ auto getReductionScopeOrdinal(Attribute attr) -> std::optional<int64_t> {
     return std::nullopt;
   if (attr.getAbstractAttribute().getName() != "spyreop.reduction_scope")
     return std::nullopt;
-  return cast<IntegerAttr>(attr).getInt();
+#ifdef DATAFLOW_SCHEDULER_ENABLE_KTIR
+  // When the SpyreOp dialect is loaded, the attribute is a typed
+  // ReductionScopeAttr; use its getValue() accessor directly.
+  if (auto scope = dyn_cast<spyreop::ReductionScopeAttr>(attr))
+    return static_cast<int64_t>(scope.getValue());
+#endif
+  // Fallback for when the dialect is not loaded: the attribute parses as an
+  // opaque IntegerAttr storing the enum ordinal.
+  if (auto int_attr = dyn_cast<IntegerAttr>(attr))
+    return int_attr.getInt();
+  return std::nullopt;
 }
 
 // Native constraint: succeeds iff the attribute is reduction_scope<in_slice>.
@@ -328,6 +344,14 @@ namespace {
 struct ApplyPatternsPass
     : public ktdf_arch::impl::ApplyPatternsPassBase<ApplyPatternsPass> {
   using ApplyPatternsPassBase::ApplyPatternsPassBase;
+
+  void getDependentDialects(DialectRegistry &registry) const override {
+    ApplyPatternsPassBase::getDependentDialects(registry);
+#ifdef DATAFLOW_SCHEDULER_ENABLE_KTIR
+    registry.insert<mlir::ktdp::KtdpDialect>();
+    registry.insert<mlir::spyreop::SpyreOpDialect>();
+#endif
+  }
 
   void runOnOperation() override {
     // Find the device that this function maps to.
