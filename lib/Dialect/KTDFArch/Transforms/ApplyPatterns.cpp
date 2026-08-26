@@ -72,7 +72,9 @@ namespace {
 
 // Returns the integer ordinal of a spyreop.reduction_scope attribute, or
 // std::nullopt if the attribute is not of that type.
-// The ordinal values match the TableGen definition: InSlice=0, AcrossSlice=1.
+// Ordinal values match the TableGen definition:
+//   InSliceFmaSrc0Shuf=0, InSliceFmaSrc2Shuf=1, InSliceFmaBothShuf=2,
+//   AcrossSliceSplat=3,   AcrossSliceScanGap=4, AcrossSliceFma16=5.
 // Using standard MLIR APIs avoids a hard dependency on KTIR headers.
 auto getReductionScopeOrdinal(Attribute attr) -> std::optional<int64_t> {
   if (!attr)
@@ -92,22 +94,67 @@ auto getReductionScopeOrdinal(Attribute attr) -> std::optional<int64_t> {
   return std::nullopt;
 }
 
-// Native constraint: succeeds iff the attribute is reduction_scope<in_slice>.
+// Native constraint: succeeds iff the attribute is one of the three in-slice
+// FMA step variants (ordinals 0–2).
 auto spyreIsInSlice(PatternRewriter & /*rewriter*/, PDLResultList & /*results*/,
                     ArrayRef<PDLValue> values) -> LogicalResult {
   assert(values.size() == 1);
   auto ordinal = getReductionScopeOrdinal(values[0].cast<Attribute>());
-  return success(ordinal && *ordinal == 0); // InSlice = 0
+  return success(ordinal && *ordinal >= 0 && *ordinal <= 2);
 }
 
-// Native constraint: succeeds iff the attribute is
-// reduction_scope<across_slice>.
+// Native constraint: succeeds iff the attribute is one of the three
+// across-slice step variants (ordinals 3–5).
 auto spyreIsAcrossSlice(PatternRewriter & /*rewriter*/,
                         PDLResultList & /*results*/, ArrayRef<PDLValue> values)
     -> LogicalResult {
   assert(values.size() == 1);
   auto ordinal = getReductionScopeOrdinal(values[0].cast<Attribute>());
-  return success(ordinal && *ordinal == 1); // AcrossSlice = 1
+  return success(ordinal && *ordinal >= 3 && *ordinal <= 5);
+}
+
+// Individual step constraints — one per enum case.
+auto spyreIsInSliceFmaSrc0Shuf(PatternRewriter & /*rewriter*/,
+                               PDLResultList & /*results*/,
+                               ArrayRef<PDLValue> values) -> LogicalResult {
+  assert(values.size() == 1);
+  auto ordinal = getReductionScopeOrdinal(values[0].cast<Attribute>());
+  return success(ordinal && *ordinal == 0); // InSliceFmaSrc0Shuf
+}
+auto spyreIsInSliceFmaSrc2Shuf(PatternRewriter & /*rewriter*/,
+                               PDLResultList & /*results*/,
+                               ArrayRef<PDLValue> values) -> LogicalResult {
+  assert(values.size() == 1);
+  auto ordinal = getReductionScopeOrdinal(values[0].cast<Attribute>());
+  return success(ordinal && *ordinal == 1); // InSliceFmaSrc2Shuf
+}
+auto spyreIsInSliceFmaBothShuf(PatternRewriter & /*rewriter*/,
+                               PDLResultList & /*results*/,
+                               ArrayRef<PDLValue> values) -> LogicalResult {
+  assert(values.size() == 1);
+  auto ordinal = getReductionScopeOrdinal(values[0].cast<Attribute>());
+  return success(ordinal && *ordinal == 2); // InSliceFmaBothShuf
+}
+auto spyreIsAcrossSliceSplat(PatternRewriter & /*rewriter*/,
+                             PDLResultList & /*results*/,
+                             ArrayRef<PDLValue> values) -> LogicalResult {
+  assert(values.size() == 1);
+  auto ordinal = getReductionScopeOrdinal(values[0].cast<Attribute>());
+  return success(ordinal && *ordinal == 3); // AcrossSliceSplat
+}
+auto spyreIsAcrossSliceScanGap(PatternRewriter & /*rewriter*/,
+                               PDLResultList & /*results*/,
+                               ArrayRef<PDLValue> values) -> LogicalResult {
+  assert(values.size() == 1);
+  auto ordinal = getReductionScopeOrdinal(values[0].cast<Attribute>());
+  return success(ordinal && *ordinal == 4); // AcrossSliceScanGap
+}
+auto spyreIsAcrossSliceFma16(PatternRewriter & /*rewriter*/,
+                             PDLResultList & /*results*/,
+                             ArrayRef<PDLValue> values) -> LogicalResult {
+  assert(values.size() == 1);
+  auto ordinal = getReductionScopeOrdinal(values[0].cast<Attribute>());
+  return success(ordinal && *ordinal == 5); // AcrossSliceFma16
 }
 
 auto ktdfArchMappedTo(PatternRewriter & /*rewriter*/, PDLResultList &results,
@@ -232,10 +279,23 @@ void ktdf_arch::registerNativeFunctions(PDLPatternModule &patterns) {
   patterns.registerRewriteFunction("agen.vector_load", agenVectorLoad);
   patterns.registerRewriteFunction("vectorchain.shuffle", vectorchainShuffle);
 
-  // Scope constraints for spyreop.slice_reduction dispatch
+  // Group-level scope constraints (match all steps of one direction).
   patterns.registerConstraintFunction("spyreop.is_in_slice", spyreIsInSlice);
   patterns.registerConstraintFunction("spyreop.is_across_slice",
                                       spyreIsAcrossSlice);
+  // Per-step scope constraints.
+  patterns.registerConstraintFunction("spyreop.is_in_slice_fma_src0_shuf",
+                                      spyreIsInSliceFmaSrc0Shuf);
+  patterns.registerConstraintFunction("spyreop.is_in_slice_fma_src2_shuf",
+                                      spyreIsInSliceFmaSrc2Shuf);
+  patterns.registerConstraintFunction("spyreop.is_in_slice_fma_both_shuf",
+                                      spyreIsInSliceFmaBothShuf);
+  patterns.registerConstraintFunction("spyreop.is_across_slice_splat",
+                                      spyreIsAcrossSliceSplat);
+  patterns.registerConstraintFunction("spyreop.is_across_slice_scan_gap",
+                                      spyreIsAcrossSliceScanGap);
+  patterns.registerConstraintFunction("spyreop.is_across_slice_fma16",
+                                      spyreIsAcrossSliceFma16);
 }
 
 //===----------------------------------------------------------------------===//
