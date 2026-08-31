@@ -24,6 +24,7 @@
 #define DATAFLOW_SCHEDULER_DIALECT_KTDF_KTDF_H_
 
 #include <mlir/Dialect/Affine/IR/AffineMemoryOpInterfaces.h>
+#include <mlir/Dialect/Utils/StaticValueUtils.h>
 #include <mlir/IR/OpDefinition.h>
 #include <mlir/Interfaces/ControlFlowInterfaces.h>
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>

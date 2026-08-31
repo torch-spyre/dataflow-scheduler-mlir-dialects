@@ -569,8 +569,8 @@ def KTDF_StageOp : KTDF_Op<"stage", [
 
 def KTDF_DataTransferOp : KTDF_Op<"data_transfer", [
     AllMatchSameOperatorTrait<
-      ["source", "destination"], 
-      KTDF_ElementType<"_self">.result, 
+      ["source", "destination"],
+      KTDF_ElementType<"_self">.result,
       "element type">,
     AttrSizedOperandSegments,
     AffineMapAccessInterface,
@@ -775,6 +775,196 @@ def KTDF_DataTransferOp : KTDF_Op<"data_transfer", [
 
     /// Implements AffineMapAccessInterface.
     /// Returns the AffineMapAttr associated with 'memref'.
+    NamedAttribute getAffineMapAttrForMemRef(Value memref);
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Indirect Data Transfer Operation
+//===----------------------------------------------------------------------===//
+
+def KTDF_IndDataTransferOp : KTDF_Op<"ind_data_transfer", [
+    AllMatchSameOperatorTrait<
+      ["dir_src", "dir_dst"],
+      KTDF_ElementType<"_self">.result,
+      "element type">,
+    AttrSizedOperandSegments,
+    AffineMapAccessInterface,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let summary = "Indirect memory transfer driven by an indirect address buffer entry";
+  let description = [{
+    The `ktdf.ind_data_transfer` operation represents an indirect memory
+    transfer driven by a single indirect address buffer (IAB) entry. The
+    hardware dereferences the IAB entry at `ind_src_index` as a base address,
+    then adds the direct offset encoded in `dir_src_indices` to arrive at the
+    source location in global memory. A contiguous tile of the size given by
+    `dir_src_sizes` is then loaded from that address and written to the
+    destination.
+
+    Exactly one of `ind_src` / `ind_dst` must be present:
+    - **gather** mode: `ind_src` is set; `ind_dst` is absent. `dir_src` must be
+      a `memref` (the indirect source address requires a concrete memory
+      location). `dir_dst` may be a `memref` or a `!ktdf.fifo.slot`.
+    - **scatter** mode: `ind_dst` is set; `ind_src` is absent. `dir_src` may be
+      a `memref` or a `!ktdf.fifo.slot`. `dir_dst` must be a `memref` (the
+      indirect destination address requires a concrete memory location).
+
+    ## Syntax
+
+    ```
+    ind-data-transfer-op ::= `ktdf.ind_data_transfer`
+        (`ind_src` `=` ssa-value `[` ssa-value `]` | `ind_src` `=` `none`)
+        `dir_src` `=` ssa-value (`[` ssa-use-list `]`)? (`size` `[` ssa-use-list `]`)?
+        (`ind_dst` `=` ssa-value `[` ssa-value `]` | `ind_dst` `=` `none`)
+        `dir_dst` `=` ssa-value (`[` ssa-use-list `]`)? (`size` `[` ssa-use-list `]`)?
+        `:` (type(ind_src_memref) | `none`) `,` type(dir_src) `,` (type(ind_dst_memref) | `none`) `,` type(dir_dst)
+    ```
+
+    ## Examples
+
+    ```mlir
+    // Gather: IAB entry drives the source address; destination is a FIFO slot
+    ktdf.ind_data_transfer
+        ind_src = %iab[%i]
+        dir_src = %data[%c0, %c0, %c0] size [2, 64]
+        ind_dst = none
+        dir_dst = %fifo_slot           size [2, 64]
+        : memref<32xindex, strided<[1], offset: ?>, "ct_iab">,
+          memref<64x2x64xf16, strided<[64, 4096, 1], offset: ?>, "global">,
+          none,
+          !ktdf.fifo.slot<"ct_load" -> "ct_compute", 128xf16>
+
+    // Gather: IAB entry drives the source; destination is a local staging buffer
+    // (post path-expansion)
+    ktdf.ind_data_transfer
+        ind_src = %iab[%i]
+        dir_src = %data[%c0, %c0, %c0] size [2, 64]
+        ind_dst = none
+        dir_dst = %staging[%c0, %c0]   size [2, 64]
+        : memref<32xindex, strided<[1], offset: ?>, "ct_iab">,
+          memref<64x2x64xf16, strided<[64, 4096, 1], offset: ?>, "global">,
+          none,
+          memref<2x64xf16, "ct_local">
+    ```
+  }];
+
+  let arguments = (ins
+    // ind_src operands (present for gather, absent for scatter)
+    Optional<AnyMemRef>:$ind_src_memref,
+    Optional<Index>:$ind_src_index,
+    // dir_src operands
+    AnyTypeOf<[AnyMemRef, KTDF_FifoSlotType]>:$dir_src,
+    Variadic<Index>:$dir_src_indices,
+    Variadic<Index>:$dir_src_sizes,
+    // ind_dst operands (present for scatter, absent for gather)
+    Optional<AnyMemRef>:$ind_dst_memref,
+    Optional<Index>:$ind_dst_index,
+    // dir_dst operands (memref or fifo.slot)
+    AnyTypeOf<[AnyMemRef, KTDF_FifoSlotType]>:$dir_dst,
+    Variadic<Index>:$dir_dst_indices,
+    Variadic<Index>:$dir_dst_sizes,
+    // Affine maps for the indexed memrefs
+    OptionalAttr<AffineMapAttr>:$dir_src_map,
+    OptionalAttr<AffineMapAttr>:$dir_dst_map,
+    OptionalAttr<AffineMapAttr>:$ind_src_map,
+    OptionalAttr<AffineMapAttr>:$ind_dst_map,
+    // Static size arrays (ShapedType::kDynamic encodes a dynamic entry)
+    OptionalAttr<DenseI64ArrayAttr>:$static_dir_src_sizes,
+    OptionalAttr<DenseI64ArrayAttr>:$static_dir_dst_sizes
+  );
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    `\n`
+    `ind_src` `=` ($ind_src_memref^ `[` $ind_src_index `]`):(`none`)? `\n`
+    `dir_src` `=` custom<CellOrSlot>($dir_src, $dir_src_indices, $dir_src_map, $dir_src_sizes, $static_dir_src_sizes) `\n`
+    `ind_dst` `=` ($ind_dst_memref^ `[` $ind_dst_index `]`):(`none`)? `\n`
+    `dir_dst` `=` custom<CellOrSlot>($dir_dst, $dir_dst_indices, $dir_dst_map, $dir_dst_sizes, $static_dir_dst_sizes) `\n`
+    attr-dict `:` custom<IndTransferTypes>(type($ind_src_memref), type($dir_src), type($ind_dst_memref), type($dir_dst))
+  }];
+
+  let builders = [
+    // Full builder with OpFoldResult sizes.
+    OpBuilder<(ins
+      "Value":$ind_src_memref, "Value":$ind_src_index,
+      "Value":$dir_src, "AffineMap":$dir_src_map,
+      "ValueRange":$dir_src_indices, "ArrayRef<OpFoldResult>":$dir_src_sizes,
+      "Value":$ind_dst_memref, "Value":$ind_dst_index,
+      "Value":$dir_dst, "AffineMap":$dir_dst_map,
+      "ValueRange":$dir_dst_indices, "ArrayRef<OpFoldResult>":$dir_dst_sizes)>,
+    // Convenience builder with all-static sizes.
+    OpBuilder<(ins
+      "Value":$ind_src_memref, "Value":$ind_src_index,
+      "Value":$dir_src, "AffineMap":$dir_src_map,
+      "ValueRange":$dir_src_indices, "ArrayRef<int64_t>":$dir_src_sizes,
+      "Value":$ind_dst_memref, "Value":$ind_dst_index,
+      "Value":$dir_dst, "AffineMap":$dir_dst_map,
+      "ValueRange":$dir_dst_indices, "ArrayRef<int64_t>":$dir_dst_sizes)>
+  ];
+
+  let extraClassDeclaration = [{
+    /// Returns true if this is a gather (ind_src present, ind_dst absent).
+    bool isGather() { return static_cast<bool>(getIndSrcMemref()); }
+
+    /// Returns true if this is a scatter (ind_dst present, ind_src absent).
+    bool isScatter() { return static_cast<bool>(getIndDstMemref()); }
+
+    /// Get the mixed dir_src sizes (combining static and dynamic).
+    SmallVector<OpFoldResult> getMixedDirSrcSizes() {
+      if (auto staticSizes = getStaticDirSrcSizes())
+        return getMixedValues(*staticSizes, getDirSrcSizes(), getContext());
+      return llvm::to_vector(llvm::map_range(getDirSrcSizes(),
+          [](Value v) { return OpFoldResult{v}; }));
+    }
+
+    /// Get the mixed dir_dst sizes (combining static and dynamic).
+    SmallVector<OpFoldResult> getMixedDirDstSizes() {
+      if (auto staticSizes = getStaticDirDstSizes())
+        return getMixedValues(*staticSizes, getDirDstSizes(), getContext());
+      return llvm::to_vector(llvm::map_range(getDirDstSizes(),
+          [](Value v) { return OpFoldResult{v}; }));
+    }
+
+    /// Returns true if all dir_src sizes are static.
+    bool hasAllStaticDirSrcSizes() {
+      if (!getStaticDirSrcSizes()) return false;
+      return ShapedType::isStaticShape(*getStaticDirSrcSizes());
+    }
+
+    /// Returns true if all dir_dst sizes are static.
+    bool hasAllStaticDirDstSizes() {
+      if (!getStaticDirDstSizes()) return false;
+      return ShapedType::isStaticShape(*getStaticDirDstSizes());
+    }
+
+    /// Get dir_src sizes as static integers, or std::nullopt if any is dynamic.
+    std::optional<SmallVector<int64_t>> getStaticDirSrcSizesArray() {
+      if (!hasAllStaticDirSrcSizes()) return std::nullopt;
+      ArrayRef<int64_t> sizes = *getStaticDirSrcSizes();
+      return SmallVector<int64_t>(sizes.begin(), sizes.end());
+    }
+
+    /// Get dir_dst sizes as static integers, or std::nullopt if any is dynamic.
+    std::optional<SmallVector<int64_t>> getStaticDirDstSizesArray() {
+      if (!hasAllStaticDirDstSizes()) return std::nullopt;
+      ArrayRef<int64_t> sizes = *getStaticDirDstSizes();
+      return SmallVector<int64_t>(sizes.begin(), sizes.end());
+    }
+
+    /// Returns the OpOperand for ind_src_memref. Only valid for gather ops.
+    OpOperand &getIndSrcMemrefOpOperand() {
+      assert(isGather() && "ind_src_memref is only present in gather mode");
+      return getIndSrcMemrefMutable()[0];
+    }
+
+    /// Returns the OpOperand for ind_dst_memref. Only valid for scatter ops.
+    OpOperand &getIndDstMemrefOpOperand() {
+      assert(isScatter() && "ind_dst_memref is only present in scatter mode");
+      return getIndDstMemrefMutable()[0];
+    }
+
+    /// Implements AffineMapAccessInterface.
     NamedAttribute getAffineMapAttrForMemRef(Value memref);
   }];
 }
