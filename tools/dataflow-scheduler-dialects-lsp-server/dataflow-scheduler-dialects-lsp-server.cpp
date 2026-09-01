@@ -29,7 +29,6 @@
 #include "dataflow-scheduler/Dialect/Dataflow/DataflowDialect.h"
 #include "dataflow-scheduler/Dialect/KTDF/KTDFDialect.h"
 #include "dataflow-scheduler/Dialect/KTDFArch/KTDFArchDialect.h"
-#include "dataflow-scheduler/Dialect/KTDFLowering/KTDFLoweringDialect.h"
 #include "dataflow-scheduler/Dialect/Symbol/Symbol.h"
 #include "dataflow-scheduler/Dialect/Uniform/Uniform.h"
 #include "dataflow-scheduler/Dialect/VectorChain/VectorChain.h"
@@ -40,8 +39,8 @@ auto main(int argc, char** argv) -> int {
   DialectRegistry registry;
   registry.insert<agen::AgenDialect, dataflow::DataflowDialect,
                   ktdf::KTDFDialect, ktdf_arch::KTDFArchDialect,
-                  ktdf_lowering::KTDFLoweringDialect, symbol::SymbolDialect,
-                  uniform::UniformDialect, vectorchain::VectorChainDialect>();
+                  symbol::SymbolDialect, uniform::UniformDialect,
+                  vectorchain::VectorChainDialect>();
   registerAllDialects(registry);
   registerAllExtensions(registry);
 

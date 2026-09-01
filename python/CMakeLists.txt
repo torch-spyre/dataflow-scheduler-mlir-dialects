@@ -80,15 +80,6 @@ declare_mlir_dialect_python_bindings(
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT DataflowSchedulerDialectsPythonSources.Dialects
   ROOT_DIR "${PYTHON_ROOT_DIR}"
-  TD_FILE dialects/KTDFLoweringOps.td
-  SOURCES 
-    dialects/ktdf_lowering.py
-  DIALECT_NAME ktdf_lowering
-)
-
-declare_mlir_dialect_python_bindings(
-  ADD_TO_PARENT DataflowSchedulerDialectsPythonSources.Dialects
-  ROOT_DIR "${PYTHON_ROOT_DIR}"
   TD_FILE dialects/SymbolOps.td
   SOURCES 
     dialects/symbol.py

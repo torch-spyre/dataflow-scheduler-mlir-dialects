@@ -16,7 +16,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file includes the entire ktdf_lowering dialect.
+// This file includes the entire ktdf_arch dialect.
 //
 //===----------------------------------------------------------------------===//
 
