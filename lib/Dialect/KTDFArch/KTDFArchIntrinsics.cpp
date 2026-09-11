@@ -137,7 +137,7 @@ auto FeaturesAttr::verify(Operation* op) const -> LogicalResult {
 auto KTDFArchDialect::verifyMapsToAttr(Operation* op,
                                        const NamedAttribute& attr)
     -> LogicalResult {
-  if (isa<KTDFArchDialect>(op->getDialect())) {
+  if (!isa<Mappable>(op)) {
     return emitIntrinsicError(op, attr) << "only valid on mappable ops";
   }
 
@@ -411,8 +411,9 @@ auto feature::IndirectAddressBuffer::verify(EmitErrorFn emit_error) const
   return success();
 }
 
-auto KTDFArchDialect::testFeatureIndirectAddressBuffer(
-    Attribute provided, const Feature& required) -> bool {
+auto KTDFArchDialect::testFeatureIndirectAddressBuffer(Attribute provided,
+                                                       const Feature& required)
+    -> bool {
   const auto required_value =
       cast<feature::IndirectAddressBuffer>(required.getValue());
   const auto provided_value = cast<feature::IndirectAddressBuffer>(provided);

@@ -196,4 +196,51 @@ def KTDFArch_Link : OpInterface<"Link", [KTDFArch_Resource]> {
   }];
 }
 
+def KTDFArch_Mappable : OpInterface<"Mappable"> {
+  let cppNamespace= "::mlir::ktdf_arch";
+  let description = [{
+    Interface for an operation that can be mapped to resources.
+
+    This interface is special in that it can't be implemented by an `ktdf_arch`
+    operation, or any operation nested under a `ktdf_arch.device`. It is also
+    automatically implemented by every other operation via the default. Still,
+    explicit, dialect fallback and external models can override it.
+  }];
+
+  let methods = [
+    InterfaceMethod<[{
+        Gets the attribute that indicates the resource mapping.
+      }], 
+      "MapsToAttr", "getMapsTo", (ins), 
+      "", 
+      [{
+        return mlir::ktdf_arch::getProperty<MapsToAttr>($_op);
+      }]>,
+    InterfaceMethod<[{
+        Tries to set the attribute that indicates the resource mapping.
+      }], 
+      "LogicalResult", "setMapsTo", (ins "MapsToAttr":$maps_to), 
+      "", 
+      [{
+        mlir::ktdf_arch::setProperty($_op, maps_to);
+        return llvm::success();
+      }]>,
+    InterfaceMethod<[{
+        Removes the attribute that indicates the resource mapping.
+      }], 
+      "MapsToAttr", "removeMapsTo", (ins), 
+      "", 
+      [{
+        return mlir::ktdf_arch::removeProperty<MapsToAttr>($_op);
+      }]>,
+  ];
+
+  let extraClassDeclaration = [{
+    /// Determines whether @p op is mappable.
+    [[nodiscard]] static auto classof(Operation* op) -> bool;
+    /// Gets the implementation for @p op , or the default.
+    [[nodiscard]] static auto getInterfaceFor(Operation* op) -> Concept*;
+  }];
+}
+
 #endif // DATAFLOW_SCHEDULER_DIALECT_KTDFARCH_KTDFARCHINTERFACES_TD
