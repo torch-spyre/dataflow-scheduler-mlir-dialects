@@ -24,7 +24,6 @@
 #define DATAFLOW_SCHEDULER_DIALECT_KTDFARCH_KTDFARCHATTRIBUTES_TD
 
 include "dataflow-scheduler/Dialect/KTDFArch/KTDFArchDialect.td"
-include "dataflow-scheduler/Dialect/KTDFArch/KTDFArchInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // Attribute constraints

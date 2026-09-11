@@ -31,7 +31,6 @@
 #include <type_traits>
 
 #include "dataflow-scheduler/Dialect/KTDFArch/KTDFArchDialect.h"  // IWYU pragma: keep
-#include "dataflow-scheduler/Dialect/KTDFArch/KTDFArchInterfaces.h"  // IWYU pragma: keep
 
 namespace mlir::ktdf_arch {
 
