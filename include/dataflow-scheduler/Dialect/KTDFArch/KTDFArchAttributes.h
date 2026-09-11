@@ -25,8 +25,10 @@
 
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/Support/PointerLikeTypeTraits.h>
 #include <mlir/IR/Attributes.h>
 #include <mlir/IR/BuiltinAttributeInterfaces.h>
+#include <mlir/IR/BuiltinAttributes.h>
 
 #include <type_traits>
 
@@ -56,6 +58,24 @@ struct I64Attr : IntegerAttr {
 
   [[nodiscard]] auto getValue() const -> int64_t {
     return IntegerAttr::getValue().getSExtValue();
+  }
+};
+
+/// Named constraint for an attribute that stores a resource kind.
+struct KindAttr : Attribute {
+  [[nodiscard]] static auto classof(Attribute attr) -> bool {
+    return !isa<UnitAttr, ArrayAttr, SymbolRefAttr>(attr);
+  }
+  [[nodiscard]] static auto classof(StringAttr /*attr*/) -> bool {
+    return true;
+  }
+
+  using Attribute::Attribute;
+
+  /*implicit*/ KindAttr(StringAttr attr) : Attribute(attr) {}
+
+  [[nodiscard]] static auto getFromOpaquePointer(const void* ptr) -> KindAttr {
+    return KindAttr(reinterpret_cast<const ImplType*>(ptr));
   }
 };
 
@@ -102,6 +122,15 @@ struct AdjacencyMatrixAttr : ElementsAttr {
 };
 
 }  // namespace mlir::ktdf_arch
+
+template <>
+struct llvm::PointerLikeTypeTraits<mlir::ktdf_arch::KindAttr>
+    : PointerLikeTypeTraits<mlir::Attribute> {
+  [[nodiscard]] static auto getFromVoidPointer(void* ptr)
+      -> mlir::ktdf_arch::KindAttr {
+    return mlir::ktdf_arch::KindAttr::getFromOpaquePointer(ptr);
+  }
+};
 
 /// Auto-generated includes.
 #define GET_ATTRDEF_CLASSES

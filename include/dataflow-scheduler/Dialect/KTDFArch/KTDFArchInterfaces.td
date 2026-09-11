@@ -90,7 +90,7 @@ def KTDFArch_Resource : OpInterface<"Resource"> {
 
         If the resource is in its own unique kind, this attribute is `nullptr`.
       }], 
-      "Attribute", "getKind", (ins), 
+      "KindAttr", "getKind", (ins), 
       "", 
       "">,
   ];

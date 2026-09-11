@@ -51,8 +51,8 @@ class ResourceIds : public DeviceView {
   ///
   /// @tparam ResourceType  Expected resource type.
   ///
-  /// @retval ResourceType  Exemplar for @p kind .
-  /// @retval nullptr       No resource of @p kind or of different type.
+  /// @retval ResourceType  Resource with @p id .
+  /// @retval nullptr       No resource with @p id or of different type.
   template <class ResourceType = Resource>
   [[nodiscard]] auto lookup(StringAttr id) const -> ResourceType {
     auto resource = map_.lookup(id);

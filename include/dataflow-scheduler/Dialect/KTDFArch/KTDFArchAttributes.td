@@ -45,6 +45,16 @@ class KTDFArch_ErasedAttr<Attr attr> : Attr<attr.predicate, attr.summary> {
   let description = attr.description;
 }
 
+def KTDFArch_KindAttr : Attr<
+    CPred<"::llvm::isa<::mlir::ktdf_arch::KindAttr>($_self)">, 
+    "resource kind identifier"
+  > {
+  let storageType = "::mlir::ktdf_arch::KindAttr";
+  let returnType = "::mlir::ktdf_arch::KindAttr";
+  let convertFromStorage = "$_self";
+  let constBuilderCall = "nullptr";
+}
+
 def KTDFArch_AdjacencyMatrixAttr : Attr<
     CPred<"::llvm::isa<::mlir::ktdf_arch::AdjacencyMatrixAttr>($_self)">, 
     "directed sparse or dense adjacency matrix"
@@ -52,7 +62,6 @@ def KTDFArch_AdjacencyMatrixAttr : Attr<
   let storageType = "::mlir::ktdf_arch::AdjacencyMatrixAttr";
   let returnType = "::mlir::ktdf_arch::AdjacencyMatrixAttr";
   let convertFromStorage = "$_self";
-  let constBuilderCall = "?";
 }
 
 // Base class for KTDF dialect attributes
