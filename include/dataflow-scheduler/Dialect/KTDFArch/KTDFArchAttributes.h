@@ -157,8 +157,12 @@ struct TypedArrayAttr : ArrayAttr {
 
   using ArrayAttr::ArrayAttr;
 
-  static auto get(MLIRContext* context, ArrayRef<Value> values) -> TypedAttr {
-    return cast<TypedArrayAttr>(ArrayAttr::get(context, values));
+  static auto get(MLIRContext* context, ArrayRef<Value> values)
+      -> TypedArrayAttr {
+    return cast<TypedArrayAttr>(ArrayAttr::get(
+        context,
+        ArrayRef<Attribute>(static_cast<const Attribute*>(values.data()),
+                            values.size())));
   }
 
   [[nodiscard]] auto getValue() const -> ArrayRef<Value> {
