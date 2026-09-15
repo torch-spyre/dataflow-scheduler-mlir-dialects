@@ -72,11 +72,33 @@ struct KindAttr : Attribute {
 
   using Attribute::Attribute;
 
-  /*implicit*/ KindAttr(StringAttr attr) : Attribute(attr) {}
+  /*implicit*/ KindAttr(StringAttr attr)
+      : Attribute(static_cast<Attribute>(attr).getImpl()) {}
 
   [[nodiscard]] static auto getFromOpaquePointer(const void* ptr) -> KindAttr {
     return KindAttr(reinterpret_cast<const ImplType*>(ptr));
   }
+};
+
+/// Named constraint for an attribute that specifies a device resource.
+///
+/// The attribute references a resource inside of an implicitly known device
+/// by its kind or unique identifier.
+struct ResourceSpecAttr : Attribute {
+  [[nodiscard]] static auto classof(Attribute attr) -> bool {
+    return isa<KindAttr, FlatSymbolRefAttr>(attr);
+  }
+  [[nodiscard]] static auto classof(KindAttr /*attr*/) -> bool { return true; }
+  [[nodiscard]] static auto classof(FlatSymbolRefAttr /*attr*/) -> bool {
+    return true;
+  }
+
+  using Attribute::Attribute;
+
+  /*implicit*/ ResourceSpecAttr(KindAttr attr)
+      : Attribute(static_cast<Attribute>(attr).getImpl()) {}
+  /*implicit*/ ResourceSpecAttr(FlatSymbolRefAttr attr)
+      : Attribute(static_cast<Attribute>(attr).getImpl()) {}
 };
 
 /// Named constraint for an attribute that stores a directed adjacency matrix.
