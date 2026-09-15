@@ -358,7 +358,7 @@ class DeviceRef {
 
   /// Gets or creates the @p View for this device.
   template <class View>
-  auto getOrCreateView() -> View& {
+  auto getOrCreateView() const -> View& {
     return getDeviceManager().getOrCreateView<View>(device_);
   }
 

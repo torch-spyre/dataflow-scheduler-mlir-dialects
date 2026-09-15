@@ -233,6 +233,15 @@ def KTDFArch_Mappable : OpInterface<"Mappable"> {
       [{
         return mlir::ktdf_arch::removeProperty<MapsToAttr>($_op);
       }]>,
+    InterfaceMethod<[{
+        Verifies a mapping of this operation to the provided resources.
+      }],
+      "LogicalResult", "verifyMapping", (ins 
+        "ArrayRef<Resource>":$resources),
+      "",
+      [{
+        return llvm::success();
+      }]>
   ];
 
   let extraClassDeclaration = [{
@@ -240,6 +249,14 @@ def KTDFArch_Mappable : OpInterface<"Mappable"> {
     [[nodiscard]] static auto classof(Operation* op) -> bool;
     /// Gets the implementation for @p op , or the default.
     [[nodiscard]] static auto getInterfaceFor(Operation* op) -> Concept*;
+
+    /// Gets the resource mapping of this op, or inherits it from a parent.
+    ///
+    /// Walks the IR upwards from @p mappable , returning the value of the first
+    /// mapping found via the interface.
+    ///
+    /// @return Pair of the mapped operation and its atttribute, or `nullptr`.
+    [[nodiscard]] auto getOrInheritMapsTo() -> std::pair<Mappable, MapsToAttr>;
   }];
 }
 

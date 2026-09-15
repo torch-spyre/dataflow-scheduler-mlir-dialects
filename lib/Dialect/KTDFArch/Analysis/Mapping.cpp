@@ -1,0 +1,149 @@
+//===-- Mapping.cpp ---------------------------------------------*- c++ -*-===//
+//
+// Part of the Dataflow Scheduler MLIR Dialects project.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+//===----------------------------------------------------------------------===//
+
+#include "dataflow-scheduler/Dialect/KTDFArch/Analysis/Mapping.h"
+
+#include <llvm/ADT/STLExtras.h>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/SmallVectorExtras.h>
+#include <llvm/ADT/TypeSwitch.h>
+#include <llvm/Support/DebugLog.h>
+#include <mlir/IR/Attributes.h>
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/Operation.h>
+#include <mlir/IR/OperationSupport.h>
+
+#include "dataflow-scheduler/Dialect/KTDFArch/Analysis/DeviceManager.h"
+#include "dataflow-scheduler/Dialect/KTDFArch/Analysis/ResourceKinds.h"
+#include "dataflow-scheduler/Dialect/KTDFArch/KTDFArch.h"
+#include "dataflow-scheduler/Dialect/KTDFArch/KTDFArchAttributes.h"
+#include "dataflow-scheduler/Dialect/KTDFArch/KTDFArchInterfaces.h"
+#include "dataflow-scheduler/Dialect/KTDFArch/KTDFArchIntrinsics.h"
+
+#define DEBUG_TYPE "ktdfarch-mapping"
+
+using namespace mlir;
+using namespace mlir::ktdf_arch;
+
+namespace {
+
+const auto kSkipRegions = OpPrintingFlags().skipRegions();
+
+}  // namespace
+
+//===----------------------------------------------------------------------===//
+// ResourceSpec
+//===----------------------------------------------------------------------===//
+
+void ResourceSpec::print(raw_ostream& os) const {
+  if (isNull()) {
+    os << "<<NULL>>";
+    return;
+  }
+
+  if (auto resource = llvm::dyn_cast<Resource>(*this); resource) {
+    if (const auto id = resource.getId(); id) {
+      os << "id(" << id << ")";
+      return;
+    }
+
+    os << OpWithFlags(resource, kSkipRegions);
+    return;
+  }
+
+  os << "kind(" << llvm::cast<KindAttr>(*this) << ")";
+}
+
+//===----------------------------------------------------------------------===//
+// Mapping
+//===----------------------------------------------------------------------===//
+
+Mapping::Mapping(const DeviceRef& device)
+    : device_(device),
+      by_id_(device_.getOrCreateView<ResourceIds>()),
+      by_kind_(device_.getOrCreateView<ResourceKinds>()) {}
+
+auto Mapping::resolve(MapsToAttr maps_to,
+                      SmallVectorImpl<Resource>& resources) const
+    -> LogicalResult {
+  for (const auto spec : maps_to.getValue()) {
+    const auto resource = lookup(spec);
+    if (resource == nullptr) {
+      return failure();
+    }
+
+    resources.push_back(resource);
+  }
+
+  return success();
+}
+
+auto Mapping::map(Mappable mappable, ArrayRef<ResourceSpec> maps_to)
+    -> LogicalResult {
+  LDBG_OS([&](llvm::raw_ostream& os) {
+    os << "mapping " << OpWithFlags(mappable, kSkipRegions) << " to [";
+    llvm::interleaveComma(maps_to, os);
+    os << "]";
+  })
+
+#ifndef NDEBUG
+  // In debug builds, we will verify the mapping whenever it is set. In release
+  // builds, callers are responsible for ensuring this invariant holds.
+  if (failed(mappable.verifyMapping(llvm::map_to_vector(
+          maps_to, [&](ResourceSpec spec) { return lookup(spec); })))) {
+    LDBG() << "  >>> FAILED: op failed to verifyMapping";
+    return failure();
+  }
+#endif
+
+  const auto to_spec = [&](ResourceSpec maps_to) -> ResourceSpecAttr {
+    if (auto resource = dyn_cast<Resource>(maps_to); resource) {
+      assert(getDevice() && getDevice().getDefinition()->isAncestor(resource));
+      return FlatSymbolRefAttr::get(by_id_.getOrAssign(resource));
+    }
+    return cast<KindAttr>(maps_to);
+  };
+  const auto result = mappable.setMapsTo(MapsToAttr::get(
+      mappable->getContext(), llvm::map_to_vector(maps_to, to_spec)));
+  if (failed(result)) {
+    LDBG() << "  >>> FAILED: op failed to setMapsTo";
+  }
+  return result;
+}
+
+auto Mapping::getOrMap(Mappable mappable, ArrayRef<ResourceSpec> fallback)
+    -> FailureOr<SmallVector<Resource>> {
+  SmallVector<Resource> result;
+  if (failed(resolve(mappable, result))) {
+    return failure();
+  }
+
+  if (result.empty()) {
+    for (const auto spec : fallback) {
+      if (result.emplace_back(lookup(spec)) == nullptr) {
+        return failure();
+      }
+    }
+
+    if (failed(map(mappable, fallback))) {
+      return failure();
+    }
+  }
+
+  return success(std::move(result));
+}

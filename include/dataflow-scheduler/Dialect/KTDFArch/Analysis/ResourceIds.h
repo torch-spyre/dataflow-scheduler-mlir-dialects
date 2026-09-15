@@ -62,7 +62,7 @@ class ResourceIds : public DeviceView {
       return dyn_cast_if_present<ResourceType>(resource.getOperation());
     }
   }
-  /// @copydoc lookup(StringAttr)
+  /// Obtains the resource with @p id , if it exists.
   [[nodiscard]] auto operator[](StringAttr id) const -> Resource {
     return lookup(id);
   }
@@ -71,7 +71,7 @@ class ResourceIds : public DeviceView {
   [[nodiscard]] auto lookup(StringRef id) const -> ResourceType {
     return lookup<ResourceType>(StringAttr::get(getContext(), id));
   }
-  /// @copydoc lookup(StringRef)
+  /// Obtains the resource with @p id , if it exists.
   [[nodiscard]] auto operator[](StringRef id) const -> Resource {
     return lookup(id);
   }

@@ -139,6 +139,16 @@ auto Mappable::getInterfaceFor(Operation* op) -> Concept* {
   return &default_mappable;
 }
 
+auto Mappable::getOrInheritMapsTo() -> std::pair<Mappable, MapsToAttr> {
+  for (auto self = *this; self; self = self->getParentOfType<Mappable>()) {
+    if (const auto mapping = self.getMapsTo()) {
+      return {self, mapping};
+    }
+  }
+
+  return {nullptr, nullptr};
+}
+
 //===----------------------------------------------------------------------===//
 // Tablegen Definitions
 //===----------------------------------------------------------------------===//
