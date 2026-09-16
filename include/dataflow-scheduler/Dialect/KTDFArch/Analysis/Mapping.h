@@ -20,6 +20,7 @@
 #define DATAFLOW_SCHEDULER_DIALECT_KTDFARCH_ANALYSIS_MAPPING_H_
 
 #include <llvm/ADT/PointerUnion.h>
+#include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/LogicalResult.h>
@@ -45,9 +46,9 @@
 namespace mlir::ktdf_arch {
 
 /// Specifier that selects an architecture graph resource.
-class ResourceSpec : public llvm::PointerUnion<KindAttr, Operation*> {
+class ResourceSpec : public llvm::PointerUnion<Resource, KindAttr> {
  public:
-  using base = llvm::PointerUnion<KindAttr, Operation*>;
+  using base = llvm::PointerUnion<Resource, KindAttr>;
 
   /// Initializes a specifier that matches nothing.
   /*implicit*/ ResourceSpec(std::nullptr_t = nullptr) : base(nullptr) {}
@@ -79,27 +80,6 @@ class ResourceSpec : public llvm::PointerUnion<KindAttr, Operation*> {
 template <typename To>
 struct llvm::CastInfo<To, mlir::ktdf_arch::ResourceSpec>
     : CastInfo<To, mlir::ktdf_arch::ResourceSpec::base> {};
-
-// Allow casting to mlir::ktdf_arch::Resource directly.
-template <>
-struct llvm::CastInfo<mlir::ktdf_arch::Resource, mlir::ktdf_arch::ResourceSpec>
-    : DefaultDoCastIfPossible<
-          mlir::ktdf_arch::Resource, mlir::ktdf_arch::ResourceSpec,
-          CastInfo<mlir::ktdf_arch::Resource, mlir::ktdf_arch::ResourceSpec>> {
-  using From = mlir::ktdf_arch::ResourceSpec;
-
-  static auto isPossible(From& from) -> bool {
-    return isa<mlir::Operation*>(from);
-  }
-
-  static auto doCast(From& from) -> mlir::ktdf_arch::Resource {
-    assert(isPossible(from) && "cast to an incompatible type!");
-    return cast<mlir::ktdf_arch::Resource>(cast<mlir::Operation*>(from));
-  }
-
-  static auto castFailed() -> mlir::ktdf_arch::Resource { return nullptr; }
-};
-
 template <typename To>
 struct llvm::CastInfo<To, const mlir::ktdf_arch::ResourceSpec>
     : ConstStrippingForwardingCast<
@@ -154,6 +134,10 @@ namespace mlir::ktdf_arch {
 /// customize queries and updates to the mapping of the IR.
 class Mapping {
  public:
+  using Resources = llvm::SmallPtrSet<
+      Resource,
+      llvm::CalculateSmallVectorDefaultInlinedElements<Resource>::value>;
+
   /// Creates a Mapping relative to @p device .
   explicit Mapping(const DeviceRef& device);
 
@@ -198,13 +182,13 @@ class Mapping {
   /// Resolves the resources reffered to by @p maps_to .
   ///
   /// @return Fails if any resource specifier could not be resolved.
-  auto resolve(MapsToAttr maps_to, SmallVectorImpl<Resource>& resources) const
+  auto resolve(MapsToAttr maps_to, SmallPtrSetImpl<Resource>& resources) const
       -> LogicalResult;
   /// Resolves the resources @p mappable is mapped to, if any.
   ///
   /// @return Fails if any resource specifier could not be resolved.
   virtual auto resolve(Mappable mappable,
-                       SmallVectorImpl<Resource>& resources) const
+                       SmallPtrSetImpl<Resource>& resources) const
       -> LogicalResult {
     if (const auto mapping = mappable.getOrInheritMapsTo().second; mapping) {
       return resolve(mapping, resources);
@@ -214,7 +198,7 @@ class Mapping {
   /// Resolves the resources @p op is mapped to, if any.
   ///
   /// @return Fails if @p op isn't mappable or any resource spec is unresolved.
-  auto resolve(Operation* op, SmallVectorImpl<Resource>& resources) const
+  auto resolve(Operation* op, SmallPtrSetImpl<Resource>& resources) const
       -> LogicalResult {
     if (auto mappable = dyn_cast<Mappable>(op); mappable) {
       return resolve(mappable, resources);
@@ -229,14 +213,15 @@ class Mapping {
   /// @retval nullptr       Invalid or undefined mapping.
   template <class ResourceType = Resource>
   [[nodiscard]] auto resolve(Mappable mappable) -> ResourceType {
-    SmallVector<Resource, 1> resources;
+    SmallPtrSet<Resource, 1> resources;
     if (failed(resolve(mappable, resources)) || resources.size() != 1) {
       return nullptr;
     }
+    auto resource = *resources.begin();
     if constexpr (std::is_same_v<ResourceType, Resource>) {
-      return resources.front();
+      return resource;
     } else {
-      return dyn_cast<ResourceType>(resources.front().getOperation());
+      return dyn_cast<ResourceType>(resource.getOperation());
     }
   }
   /// Resolves the singular Resource @p op is mapped to, if any.
@@ -279,19 +264,19 @@ class Mapping {
   ///
   /// See map(Mappable, ArrayRef<ResourceSpec>) for more details on mapping.
   ///
-  /// @retval SmallVector<Resource> Resources that @p mappable is mapped to.
-  /// @retval failure               Invalid mapping or @p fallback .
+  /// @retval Resources Resources that @p mappable is mapped to.
+  /// @retval failure   Invalid mapping or @p fallback .
   auto getOrMap(Mappable mappable, ArrayRef<ResourceSpec> fallback)
-      -> FailureOr<SmallVector<Resource>>;
+      -> FailureOr<Resources>;
   /// Resolves the Resources @p op is mapped to, mapping it to @p fallback if it
   /// has no established mapping.
   ///
   /// See map(Mappable, ArrayRef<ResourceSpec>) for more details on mapping.
   ///
-  /// @retval SmallVector<Resource> Resources that @p op is mapped to.
-  /// @retval failure               Invalid mapping or @p fallback .
+  /// @retval Resources Resources that @p op is mapped to.
+  /// @retval failure   Invalid mapping or @p fallback .
   auto getOrMap(Operation* op, ArrayRef<ResourceSpec> fallback)
-      -> FailureOr<SmallVector<Resource>> {
+      -> FailureOr<Resources> {
     if (auto mappable = dyn_cast<Mappable>(op); mappable) {
       return getOrMap(mappable, fallback);
     }
@@ -306,15 +291,16 @@ class Mapping {
   /// @retval nullptr       Invalid mapping or @p fallback .
   template <class ResourceType = Resource>
   auto getOrMap(Mappable mappable, ResourceSpec fallback) -> ResourceType {
-    SmallVector<Resource, 1> result;
+    SmallPtrSet<Resource, 1> result;
     if (failed(resolve(mappable, result)) || result.size() > 1) {
       return nullptr;
     }
 
+    Resource resource;
     if (result.empty()) {
-      result.push_back(lookup(fallback));
+      resource = lookup(fallback);
       if constexpr (!std::is_same_v<ResourceType, Resource>) {
-        if (!isa<ResourceType>(result.front().getOperation())) {
+        if (!isa<ResourceType>(resource.getOperation())) {
           return nullptr;
         }
       }
@@ -322,14 +308,15 @@ class Mapping {
       if (failed(map(mappable, {fallback}))) {
         return nullptr;
       }
+    } else {
+      resource = *result.begin();
     }
 
     if constexpr (std::is_same_v<ResourceType, Resource>) {
-      return result.front();
+      return resource;
     } else {
-      return result.front()
-                 ? dyn_cast<ResourceType>(result.front().getOperation())
-                 : nullptr;
+      return resource ? dyn_cast<ResourceType>(resource.getOperation())
+                      : nullptr;
     }
   }
   /// Resolves the singular Resource @p op is mapped to, mapping it to

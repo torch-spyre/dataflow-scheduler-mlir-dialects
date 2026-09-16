@@ -80,7 +80,7 @@ Mapping::Mapping(const DeviceRef& device)
       by_kind_(device_.getOrCreateView<ResourceKinds>()) {}
 
 auto Mapping::resolve(MapsToAttr maps_to,
-                      SmallVectorImpl<Resource>& resources) const
+                      SmallPtrSetImpl<Resource>& resources) const
     -> LogicalResult {
   for (const auto spec : maps_to.getValue()) {
     const auto resource = lookup(spec);
@@ -88,7 +88,7 @@ auto Mapping::resolve(MapsToAttr maps_to,
       return failure();
     }
 
-    resources.push_back(resource);
+    resources.insert(resource);
   }
 
   return success();
@@ -123,17 +123,20 @@ auto Mapping::map(Mappable mappable, ArrayRef<ResourceSpec> maps_to)
 }
 
 auto Mapping::getOrMap(Mappable mappable, ArrayRef<ResourceSpec> fallback)
-    -> FailureOr<SmallVector<Resource>> {
-  SmallVector<Resource> result;
+    -> FailureOr<Resources> {
+  Resources result;
   if (failed(resolve(mappable, result))) {
     return failure();
   }
 
   if (result.empty()) {
     for (const auto spec : fallback) {
-      if (result.emplace_back(lookup(spec)) == nullptr) {
+      const auto resource = lookup(spec);
+      if (resource == nullptr) {
         return failure();
       }
+
+      result.insert(resource);
     }
 
     if (failed(map(mappable, fallback))) {

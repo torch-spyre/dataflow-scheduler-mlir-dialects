@@ -141,7 +141,7 @@ auto Mappable::getInterfaceFor(Operation* op) -> Concept* {
 
 auto Mappable::getOrInheritMapsTo() -> std::pair<Mappable, MapsToAttr> {
   for (auto self = *this; self; self = self->getParentOfType<Mappable>()) {
-    if (const auto mapping = self.getMapsTo()) {
+    if (const auto mapping = self.getMapsTo(); mapping) {
       return {self, mapping};
     }
   }
