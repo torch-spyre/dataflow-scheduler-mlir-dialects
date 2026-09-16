@@ -154,10 +154,10 @@ namespace mlir::ktdf_arch {
 /// customize queries and updates to the mapping of the IR.
 class Mapping {
  public:
-  virtual ~Mapping() = default;
-
   /// Creates a Mapping relative to @p device .
   explicit Mapping(const DeviceRef& device);
+
+  virtual ~Mapping() = default;
 
   /// Looks up the Resource @p maps_to refers to, if any.
   ///
@@ -211,6 +211,16 @@ class Mapping {
     }
     return success();
   }
+  /// Resolves the resources @p op is mapped to, if any.
+  ///
+  /// @return Fails if @p op isn't mappable or any resource spec is unresolved.
+  auto resolve(Operation* op, SmallVectorImpl<Resource>& resources) const
+      -> LogicalResult {
+    if (auto mappable = dyn_cast<Mappable>(op); mappable) {
+      return resolve(mappable, resources);
+    }
+    return failure();
+  }
   /// Resolves the singular Resource @p mappable is mapped to, if any.
   ///
   /// @tparam ResourceType  Expected resource type.
@@ -229,8 +239,21 @@ class Mapping {
       return dyn_cast<ResourceType>(resources.front().getOperation());
     }
   }
+  /// Resolves the singular Resource @p op is mapped to, if any.
+  ///
+  /// @tparam ResourceType  Expected resource type.
+  ///
+  /// @retval ResourceType  Singular resource @p mappable is mapped to.
+  /// @retval nullptr       Invalid or undefined mapping.
+  template <class ResourceType = Resource>
+  [[nodiscard]] auto resolve(Operation* op) -> ResourceType {
+    if (auto mappable = dyn_cast<Mappable>(op); mappable) {
+      return resolve<ResourceType>(mappable);
+    }
+    return nullptr;
+  }
 
-  /// Maps @p mappable to the Resource given by @p maps_to .
+  /// Maps @p mappable to the Resources given by @p maps_to .
   ///
   /// The caller is responsible for ensuring that @p maps_to is a valid mapping
   /// for @p mappable . The operation may customize the behavior of setting the
@@ -239,6 +262,17 @@ class Mapping {
   /// @return Whether @p mappable has updated its mapping.
   virtual auto map(Mappable mappable, ArrayRef<ResourceSpec> maps_to)
       -> LogicalResult;
+  /// Maps @p op to the Resources given by @p maps_to .
+  ///
+  /// See map(Mappable, ArrayRef<ResourceSpec>) for more information.
+  ///
+  /// @return Whether @p op has updated its mapping.
+  auto map(Operation* op, ArrayRef<ResourceSpec> maps_to) -> LogicalResult {
+    if (auto mappable = dyn_cast<Mappable>(op); mappable) {
+      return map(mappable, maps_to);
+    }
+    return failure();
+  }
 
   /// Resolves the Resources @p mappable is mapped to, mapping it to @p fallback
   /// if it has no established mapping.
@@ -249,8 +283,22 @@ class Mapping {
   /// @retval failure               Invalid mapping or @p fallback .
   auto getOrMap(Mappable mappable, ArrayRef<ResourceSpec> fallback)
       -> FailureOr<SmallVector<Resource>>;
+  /// Resolves the Resources @p op is mapped to, mapping it to @p fallback if it
+  /// has no established mapping.
+  ///
+  /// See map(Mappable, ArrayRef<ResourceSpec>) for more details on mapping.
+  ///
+  /// @retval SmallVector<Resource> Resources that @p op is mapped to.
+  /// @retval failure               Invalid mapping or @p fallback .
+  auto getOrMap(Operation* op, ArrayRef<ResourceSpec> fallback)
+      -> FailureOr<SmallVector<Resource>> {
+    if (auto mappable = dyn_cast<Mappable>(op); mappable) {
+      return getOrMap(mappable, fallback);
+    }
+    return failure();
+  }
   /// Resolves the singular Resource @p mappable is mapped to, mapping it to
-  /// @p fallaback if it has no established mapping.
+  /// @p fallback if it has no established mapping.
   ///
   /// See map(Mappable, ArrayRef<ResourceSpec>) for more details on mapping.
   ///
@@ -260,14 +308,14 @@ class Mapping {
   auto getOrMap(Mappable mappable, ResourceSpec fallback) -> ResourceType {
     SmallVector<Resource, 1> result;
     if (failed(resolve(mappable, result)) || result.size() > 1) {
-      return failure();
+      return nullptr;
     }
 
     if (result.empty()) {
       result.push_back(lookup(fallback));
       if constexpr (!std::is_same_v<ResourceType, Resource>) {
         if (!isa<ResourceType>(result.front().getOperation())) {
-          return failure();
+          return nullptr;
         }
       }
 
@@ -279,8 +327,34 @@ class Mapping {
     if constexpr (std::is_same_v<ResourceType, Resource>) {
       return result.front();
     } else {
-      return result.front() ? dyn_cast<ResourceType>(result) : nullptr;
+      return result.front()
+                 ? dyn_cast<ResourceType>(result.front().getOperation())
+                 : nullptr;
     }
+  }
+  /// Resolves the singular Resource @p op is mapped to, mapping it to
+  /// @p fallback if it has no established mapping.
+  ///
+  /// See map(Mappable, ArrayRef<ResourceSpec>) for more details on mapping.
+  ///
+  /// @retval ResourceType  Resource that @p op is mapped to.
+  /// @retval nullptr       Invalid mapping or @p fallback .
+  template <class ResourceType = Resource>
+  auto getOrMap(Operation* op, ResourceSpec fallback) -> ResourceType {
+    if (auto mappable = dyn_cast<Mappable>(op); mappable) {
+      return getOrMap<ResourceType>(mappable, fallback);
+    }
+    return nullptr;
+  }
+
+  /// Verifies the mapping of @p mappable .
+  auto verify(Mappable mappable) const -> LogicalResult;
+  /// Verifies the mapping of @p op .
+  auto verify(Operation* op) const -> LogicalResult {
+    if (auto mappable = dyn_cast<Mappable>(op); mappable) {
+      return verify(mappable);
+    }
+    return success();
   }
 
   /// Gets the underlying Device the Mapping is relative to.
@@ -291,6 +365,10 @@ class Mapping {
   [[nodiscard]] auto byKind() const -> const ResourceKinds& { return by_kind_; }
 
  private:
+  /// Verifies the mapping of @p mappable to @p resources .
+  virtual auto verifyImpl(Mappable mappable, ArrayRef<Resource> resources) const
+      -> LogicalResult;
+
   const DeviceRef& device_;
   ResourceIds& by_id_;
   const ResourceKinds& by_kind_;

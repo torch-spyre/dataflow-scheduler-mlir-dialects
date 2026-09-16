@@ -23,6 +23,7 @@
 #include <llvm/ADT/SmallVectorExtras.h>
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/Support/DebugLog.h>
+#include <llvm/Support/LogicalResult.h>
 #include <mlir/IR/Attributes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/Operation.h>
@@ -101,16 +102,6 @@ auto Mapping::map(Mappable mappable, ArrayRef<ResourceSpec> maps_to)
     os << "]";
   })
 
-#ifndef NDEBUG
-  // In debug builds, we will verify the mapping whenever it is set. In release
-  // builds, callers are responsible for ensuring this invariant holds.
-  if (failed(mappable.verifyMapping(llvm::map_to_vector(
-          maps_to, [&](ResourceSpec spec) { return lookup(spec); })))) {
-    LDBG() << "  >>> FAILED: op failed to verifyMapping";
-    return failure();
-  }
-#endif
-
   const auto to_spec = [&](ResourceSpec maps_to) -> ResourceSpecAttr {
     if (auto resource = dyn_cast<Resource>(maps_to); resource) {
       assert(getDevice() && getDevice().getDefinition()->isAncestor(resource));
@@ -123,7 +114,12 @@ auto Mapping::map(Mappable mappable, ArrayRef<ResourceSpec> maps_to)
   if (failed(result)) {
     LDBG() << "  >>> FAILED: op failed to setMapsTo";
   }
+
+#ifndef NDEBUG
+  return verify(mappable);
+#else
   return result;
+#endif
 }
 
 auto Mapping::getOrMap(Mappable mappable, ArrayRef<ResourceSpec> fallback)
@@ -146,4 +142,27 @@ auto Mapping::getOrMap(Mappable mappable, ArrayRef<ResourceSpec> fallback)
   }
 
   return success(std::move(result));
+}
+
+auto Mapping::verify(Mappable mappable) const -> LogicalResult {
+  const auto maps_to = mappable.getMapsTo();
+  if (!maps_to) {
+    return success();
+  }
+
+  SmallVector<Resource> resources;
+  resources.reserve(maps_to.getValue().size());
+  for (auto spec : maps_to.getValue()) {
+    if (resources.emplace_back(lookup(spec)) == nullptr) {
+      return mappable->emitError("invalid mapping: unresolved resource ")
+             << spec;
+    }
+  }
+
+  return verifyImpl(mappable, resources);
+}
+
+auto Mapping::verifyImpl(Mappable mappable, ArrayRef<Resource> resources) const
+    -> LogicalResult {
+  return mappable.verifyMapping(resources);
 }
