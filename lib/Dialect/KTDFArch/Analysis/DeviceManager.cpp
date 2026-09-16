@@ -250,6 +250,11 @@ DeviceManagerRef::DeviceManagerRef(Operation* root)
     : mlir::ktdf_arch::DeviceManagerRef(new DeviceManager(root), true) {}
 
 DeviceManagerRef::DeviceManagerRef(Operation* root, AnalysisManager analyses) {
+  if (const auto maybe_manager = analyses.getCachedAnalysis<DeviceManager>();
+      maybe_manager && maybe_manager->get().getRoot() == root) {
+    ptr_.setPointerAndInt(&maybe_manager->get(), 0);
+    return;
+  }
   if (const auto maybe_manager =
           analyses.getCachedParentAnalysis<DeviceManager>(root);
       maybe_manager) {

@@ -174,6 +174,9 @@ class DeviceManager {
   /// Destroys the DeviceManager and all its imported devices.
   ~DeviceManager() = default;
 
+  /// Gets the operation the manager is rooted at.
+  [[nodiscard]] auto getRoot() -> Operation* { return root_; }
+
   static auto isInvalidated(const AnalysisManager::PreservedAnalyses& /*pa*/)
       -> bool {
     // Devices within a module and their import locations must remain immutable,
