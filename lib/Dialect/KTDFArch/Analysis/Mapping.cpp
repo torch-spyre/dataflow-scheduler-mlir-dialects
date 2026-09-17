@@ -94,6 +94,30 @@ auto Mapping::resolve(MapsToAttr maps_to,
   return success();
 }
 
+auto Mapping::map(ResourceSpec maps_to) -> ResourceSpecAttr {
+  if (auto resource = dyn_cast<Resource>(maps_to); resource) {
+    if (const auto id = by_id_.getOrAssign(resource); id) {
+      return FlatSymbolRefAttr::get(id);
+    }
+    return nullptr;
+  }
+
+  return cast<KindAttr>(maps_to);
+}
+
+auto Mapping::map(ArrayRef<ResourceSpec> maps_to) -> MapsToAttr {
+  SmallVector<ResourceSpecAttr> value;
+  value.resize_for_overwrite(maps_to.size());
+
+  for (auto [spec, attr] : llvm::zip_equal(maps_to, value)) {
+    if ((attr = map(spec)) == nullptr) {
+      return nullptr;
+    }
+  }
+
+  return MapsToAttr::get(getContext(), value);
+}
+
 auto Mapping::map(Mappable mappable, ArrayRef<ResourceSpec> maps_to)
     -> LogicalResult {
   LDBG_OS([&](llvm::raw_ostream& os) {
@@ -102,15 +126,12 @@ auto Mapping::map(Mappable mappable, ArrayRef<ResourceSpec> maps_to)
     os << "]";
   })
 
-  const auto to_spec = [&](ResourceSpec maps_to) -> ResourceSpecAttr {
-    if (auto resource = dyn_cast<Resource>(maps_to); resource) {
-      assert(getDevice() && getDevice().getDefinition()->isAncestor(resource));
-      return FlatSymbolRefAttr::get(by_id_.getOrAssign(resource));
-    }
-    return cast<KindAttr>(maps_to);
-  };
-  const auto result = mappable.setMapsTo(MapsToAttr::get(
-      mappable->getContext(), llvm::map_to_vector(maps_to, to_spec)));
+  const auto attr = map(maps_to);
+  if (!attr) {
+    return failure();
+  }
+
+  const auto result = mappable.setMapsTo(attr);
   if (failed(result)) {
     LDBG() << "  >>> FAILED: op failed to setMapsTo";
   }

@@ -238,6 +238,16 @@ class Mapping {
     return nullptr;
   }
 
+  /// Creates a ResourceSpecAttr from @p maps_to .
+  ///
+  /// @retval ResourceSpecAttr  Attribute that references @p maps_to .
+  /// @retval nullptr           @p maps_to is not part of the device.
+  virtual auto map(ResourceSpec maps_to) -> ResourceSpecAttr;
+  /// Creates a MapsToAttr from @p maps_to .
+  ///
+  /// @retval MapsToAttr  Attribute that references @p maps_to .
+  /// @retval nullptr     Some @p maps_to resource is not part of the device.
+  auto map(ArrayRef<ResourceSpec> maps_to) -> MapsToAttr;
   /// Maps @p mappable to the Resources given by @p maps_to .
   ///
   /// The caller is responsible for ensuring that @p maps_to is a valid mapping
@@ -344,6 +354,10 @@ class Mapping {
     return success();
   }
 
+  /// Gets the MLIR context.
+  [[nodiscard]] auto getContext() const -> MLIRContext* {
+    return device_->getContext();
+  }
   /// Gets the underlying Device the Mapping is relative to.
   [[nodiscard]] auto getDevice() const -> const Device& { return device_; }
   /// Gets the read-only ResourceIds of the device.
