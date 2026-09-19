@@ -30,6 +30,7 @@
 #include <mlir/IR/OpDefinition.h>
 #include <mlir/IR/OpImplementation.h>
 #include <mlir/IR/OperationSupport.h>
+#include <mlir/IR/PatternMatch.h>
 #include <mlir/IR/ValueRange.h>
 #include <mlir/Interfaces/ControlFlowInterfaces.h>
 #include <mlir/Support/WalkResult.h>
@@ -159,6 +160,113 @@ auto parseSwitchType(OpAsmParser& parser, SmallVectorImpl<Type>& types)
 void printSwitchType(OpAsmPrinter& printer, Operation* /*op*/,
                      TypeRange types) {
   printer << "[" << types.size() << "]";
+}
+
+auto parseNeighborhoodType(OpAsmParser& parser, Type& type) -> ParseResult {
+  const auto loc = parser.getCurrentLocation();
+
+  SmallVector<Type> results;
+  if (parser.parseCommaSeparatedList(
+          OpAsmParser::Delimiter::Paren, [&]() -> ParseResult {
+            return parseShortType(parser, results.emplace_back());
+          })) {
+    return failure();
+  }
+
+  SmallVector<int64_t> dimensions;
+  if (parser.parseCommaSeparatedList(
+          OpAsmParser::Delimiter::Square, [&]() -> ParseResult {
+            return parser.parseInteger(dimensions.emplace_back());
+          })) {
+    return failure();
+  }
+
+  // FIXME: NeighborhoodType::getChecked does not compile.
+  if (failed(NeighborhoodType::verify(
+          [&]() -> InFlightDiagnostic { return parser.emitError(loc); },
+          results, dimensions))) {
+    return failure();
+  }
+  type = NeighborhoodType::get(parser.getContext(), results, dimensions);
+  return success();
+}
+
+void printNeighborhoodType(OpAsmPrinter& printer, Operation* /*op*/,
+                           NeighborhoodType type) {
+  printer << "(";
+  llvm::interleaveComma(type.getResults(), printer, [&](Type type) {
+    ktdf_arch::printShortType(printer, type);
+  });
+  printer << ")[";
+  llvm::interleaveComma(type.getDimensions(), printer);
+  printer << "]";
+}
+
+auto parseLocalNeighborhood(
+    OpAsmParser& parser,
+    SmallVectorImpl<OpAsmParser::UnresolvedOperand>& neighborhood,
+    SmallVectorImpl<Type>& neighborhood_types) -> ParseResult {
+  if (parser.parseOptionalKeyword("neighborhood")) {
+    // $neighborhood `:` type($neighborhood)
+    if (parser.parseOperand(neighborhood.emplace_back()) ||
+        parser.parseColon() ||
+        parseNeighborhoodType(parser, neighborhood_types.emplace_back())) {
+      return failure();
+    }
+    return success();
+  }
+
+  // `neighborhood` `(` $neighborhood `)`
+  NeighborhoodType local_type;
+  const auto start_loc = parser.getCurrentLocation();
+  if (parser.parseOperandList(neighborhood, OpAsmParser::Delimiter::Paren) ||
+      parser.parseColon()) {
+    return failure();
+  }
+  if (neighborhood.empty()) {
+    return parser.emitError(start_loc, "expected at least 1 operand");
+  }
+  // `:` neighborhood-type
+  const auto type_loc = parser.getCurrentLocation();
+  if (parseNeighborhoodType(parser, local_type)) {
+    return failure();
+  }
+  if (local_type.getDimensions().empty() ||
+      local_type.getDimensions().front() !=
+          static_cast<int64_t>(neighborhood.size())) {
+    return parser.emitError(type_loc, "requires leading dimension of ")
+           << neighborhood.size();
+  }
+  neighborhood_types.assign(
+      neighborhood.size(),
+      local_type.cloneWith(std::nullopt,
+                           local_type.getDimensions().drop_front()));
+  return success();
+}
+
+void printLocalNeighborhood(OpAsmPrinter& printer, Operation* op,
+                            ValueRange neighborhood,
+                            TypeRange /*neighborhood_types*/) {
+  assert(!neighborhood.empty());
+  const auto type = cast<NeighborhoodType>(neighborhood.front().getType());
+
+  auto neighbor = dyn_cast<NeighborOp>(op);
+  if (neighborhood.size() == 1 && !(neighbor && neighbor.isDegenerate())) {
+    // $neighborhood `:` type($neighborhood)
+    printer << neighborhood.front() << " : ";
+    printNeighborhoodType(printer, op, type);
+    return;
+  }
+
+  // `neighborhood` `(` $neighborhood `)` `:`
+  printer << "neighborhood(" << neighborhood << ") : ";
+
+  // neighborhood-type
+  llvm::SmallVector<int64_t> local_dims;
+  local_dims.reserve(1U + type.getDimensions().size());
+  local_dims.push_back(static_cast<int64_t>(neighborhood.size()));
+  llvm::append_range(local_dims, type.getDimensions());
+  printNeighborhoodType(printer, op, type.cloneWith(std::nullopt, local_dims));
 }
 
 }  // namespace
@@ -334,6 +442,8 @@ void GroupOp::build(
     builder.setInsertionPointToStart(&body);
     body_builder(builder, state.location, body.getArguments());
   }
+
+  ensureTerminator(*state.regions.front(), builder, state.location);
 }
 
 auto GroupOp::getEntrySuccessorOperands(RegionSuccessor successor)
@@ -353,6 +463,47 @@ void GroupOp::getSuccessorRegions(RegionBranchPoint point,
   }
 
   regions.emplace_back(getOperation(), getResults());
+}
+
+//===----------------------------------------------------------------------===//
+// YieldOp
+//===----------------------------------------------------------------------===//
+
+auto YieldOp::parse(OpAsmParser& parser, OperationState& result)
+    -> ParseResult {
+  // $operands
+  SmallVector<OpAsmParser::UnresolvedOperand> operands;
+  if (parser.parseOperandList(operands)) {
+    return failure();
+  }
+
+  // attr-dict
+  if (parser.parseOptionalAttrDict(result.attributes)) {
+    return failure();
+  }
+
+  // (`:` custom<ShortTypeList>)
+  SmallVector<Type> operand_types;
+  if (parser.parseOptionalColon()) {
+    operand_types.resize(operands.size(),
+                         ExecutionUnitType::get(parser.getContext()));
+  } else if (parseShortTypeList(parser, operand_types)) {
+    return failure();
+  }
+
+  return parser.resolveOperands(operands, operand_types, {}, result.operands);
+}
+
+void YieldOp::print(OpAsmPrinter& printer) {
+  printer << " ";
+  printer.printOperands(getOperands());
+  printer.printOptionalAttrDict((*this)->getAttrs());
+
+  if (llvm::any_of(getOperandTypes(),
+                   [](Type type) { return !isa<ExecutionUnitType>(type); })) {
+    printer << " : ";
+    llvm::interleaveComma(getOperandTypes(), printer);
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -470,19 +621,19 @@ auto DatapathOp::verify() -> LogicalResult {
 // PatternsOp
 //===----------------------------------------------------------------------===//
 
-void PatternsOp::build(OpBuilder& builder, OperationState& result,
+void PatternsOp::build(OpBuilder& builder, OperationState& state,
                        ArrayRef<StringRef> groups,
                        function_ref<void(OpBuilder&, Location)> body_builder) {
-  auto& props = result.getOrAddProperties<Properties>();
+  auto& props = state.getOrAddProperties<Properties>();
   props.groups = builder.getStrArrayAttr(groups);
 
-  auto& body = result.addRegion()->emplaceBlock();
+  auto& body = state.addRegion()->emplaceBlock();
 
   if (body_builder) {
     OpBuilder::InsertionGuard guard(builder);
 
     builder.setInsertionPointToStart(&body);
-    body_builder(builder, result.location);
+    body_builder(builder, state.location);
   }
 }
 
@@ -496,5 +647,299 @@ auto PatternsOp::verifyRegions() -> LogicalResult {
     }
   }
 
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// NeighborhoodOp
+//===----------------------------------------------------------------------===//
+
+auto NeighborhoodOp::parse(OpAsmParser& parser, OperationState& result)
+    -> ParseResult {
+  // attr-dict
+  if (parser.parseOptionalAttrDict(result.attributes)) {
+    return failure();
+  }
+
+  // ssa-id `:` custom<NeighborhoodType>
+  OpAsmParser::Argument arg;
+  if (parser.parseArgument(arg) || parser.parseColon() ||
+      parseNeighborhoodType(parser, arg.type)) {
+    return failure();
+  }
+  result.addTypes(arg.type);
+
+  // region
+  if (parser.parseRegion(*result.addRegion(), {arg})) {
+    return failure();
+  }
+  ensureTerminator(*result.regions[0], parser.getBuilder(), result.location);
+
+  return success();
+}
+
+void NeighborhoodOp::print(OpAsmPrinter& printer) {
+  // attr-dict
+  printer.printOptionalAttrDict((*this)->getAttrs());
+
+  // ssa-id `:` custom<NeighborhoodType>
+  printer << " " << getBody()->getArgument(0) << " : ";
+  printNeighborhoodType(printer, *this, getNeighborhoodType());
+  printer << " ";
+
+  // region
+  printer.printRegion(getBodyRegion(), false);
+}
+
+void NeighborhoodOp::build(
+    OpBuilder& builder, OperationState& state,
+    NeighborhoodType neighborhood_type,
+    function_ref<void(OpBuilder&, Location, Value)> body_builder) {
+  state.addTypes(neighborhood_type);
+
+  auto& body = state.addRegion()->emplaceBlock();
+  auto self = body.addArgument(neighborhood_type, state.location);
+
+  if (body_builder) {
+    OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPointToStart(&body);
+    body_builder(builder, state.location, self);
+  }
+
+  ensureTerminator(*state.regions.front(), builder, state.location);
+}
+
+auto NeighborhoodOp::verify() -> LogicalResult {
+  // Check that the region argument list matches the result type.
+  if (getBody()->getNumArguments() != 1) {
+    return emitOpError() << "expected 1 block argument, but got "
+                         << getBody()->getNumArguments();
+  }
+  if (getSelfArgument().getType() != getResult().getType()) {
+    return emitOpError() << "argument #0 type (" << getSelfArgument().getType()
+                         << ") does not match result type ("
+                         << getResult().getType() << ")";
+  }
+
+  return success();
+}
+
+auto NeighborhoodOp::verifyRegions() -> LogicalResult {
+  // Check that the YieldOp matches the declared type.
+  const auto result_types = getNeighborhoodType().getResults();
+  auto yield = cast<YieldOp>(getBody()->getTerminator());
+  if (yield->getNumOperands() != result_types.size()) {
+    return yield->emitOpError()
+           << "number of operands (" << yield->getNumOperands()
+           << ") does not match neighborhood type (" << result_types.size()
+           << ")";
+  }
+  for (auto [idx, type] : llvm::enumerate(yield->getOperandTypes())) {
+    if (type != result_types[idx]) {
+      return yield.emitOpError()
+             << "operand #" << idx << " type (" << type << ") "
+             << " does not match neighborhood type (" << result_types[idx]
+             << ")";
+    }
+  }
+
+  return success();
+}
+
+namespace {
+
+/// Inlines the contents of a (non-empty) singleton neighborhood.
+struct InlineSingletonNeighborhood : OpRewritePattern<NeighborhoodOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  auto matchAndRewrite(NeighborhoodOp source, PatternRewriter& rewriter) const
+      -> LogicalResult override {
+    if (!source.isSingleton()) {
+      return rewriter.notifyMatchFailure(source,
+                                         "neighborhood is not a singleton");
+    }
+    if (source.getBody()->without_terminator().empty()) {
+      return rewriter.notifyMatchFailure(source, "neighborhood is empty");
+    }
+
+    auto& body = *source.getBody();
+    auto& new_body = *rewriter.splitBlock(&body, std::prev(body.end()));
+    new_body.addArgument(body.getArgument(0).getType(),
+                         body.getArgument(0).getLoc());
+    rewriter.inlineBlockBefore(&body, source, {source.getResult()});
+    return success();
+  }
+};
+
+}  // namespace
+
+void NeighborhoodOp::getCanonicalizationPatterns(RewritePatternSet& result,
+                                                 MLIRContext* context) {
+  result.add<InlineSingletonNeighborhood>(context);
+}
+
+auto NeighborhoodOp::isLeaf() -> bool {
+  return !getBody()
+              ->walk([](NeighborhoodOp) -> WalkResult {
+                return WalkResult::interrupt();
+              })
+              .wasInterrupted();
+}
+
+void NeighborhoodOp::getDomain(SmallVectorImpl<int64_t>& domain) {
+  const auto offset = domain.size();
+  for (auto scope = *this; scope;
+       scope = scope->getParentOfType<NeighborhoodOp>()) {
+    const auto dims = scope.getNeighborhoodType().getDimensions();
+    domain.append(dims.rbegin(), dims.rend());
+  }
+
+  std::reverse(domain.begin() + offset, domain.end());
+}
+
+//===----------------------------------------------------------------------===//
+// NeighborOp
+//===----------------------------------------------------------------------===//
+
+auto NeighborOp::isDegenerate() -> bool {
+  const auto type = cast<NeighborhoodType>(getNeighborhood().front().getType());
+  return getNeighborhood().size() == 1 &&
+         getMap().getNumResults() == 1U + type.getDimensions().size();
+}
+
+auto NeighborOp::getNeighborhoodType() -> NeighborhoodType {
+  const auto type = cast<NeighborhoodType>(getNeighborhood().front().getType());
+  if (getNeighborhood().size() == 1) {
+    return type;
+  }
+
+  llvm::SmallVector<int64_t> local_dims;
+  local_dims.reserve(1U + type.getDimensions().size());
+  local_dims.push_back(static_cast<int64_t>(getNeighborhood().size()));
+  llvm::append_range(local_dims, type.getDimensions());
+  return type.cloneWith(std::nullopt, local_dims);
+}
+
+auto NeighborOp::verify() -> LogicalResult {
+  if (getNeighborhood().empty()) {
+    return emitOpError("requires at least one neighborhod operand");
+  }
+
+  // Check that the map input dimensions matches the number of surrounding
+  // neighborhood dimensions.
+  SmallVector<int64_t> domain;
+  if (auto parent = (*this)->getParentOfType<NeighborhoodOp>(); parent) {
+    parent.getDomain(domain);
+  }
+  if (getMap().getNumDims() != domain.size()) {
+    return emitOpError() << "number of input dims (" << getMap().getNumDims()
+                         << ") does not match enclosing scope ("
+                         << domain.size() << ")";
+  }
+
+  // Check that the number of output dimensions matches the neighborhood's
+  // dimensions (which may include the variadic operands dimension). Note that
+  // we can't differentiate `in neighborhood(%x)` from `in %x` and thus have to
+  // accept both forms there (the degenerate case).
+  const auto expected_results = getNeighborhoodType().getDimensions().size();
+  if (getMap().getNumResults() != expected_results && !isDegenerate()) {
+    return emitOpError() << "number of result dims ("
+                         << getMap().getNumResults()
+                         << ") does not match neighborhood ("
+                         << expected_results << ")";
+  }
+
+  return success();
+}
+
+namespace {
+
+/// Folds a constant first dimension into the local neighborhood.
+struct ResolveNeighbor : OpRewritePattern<NeighborOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  auto matchAndRewrite(NeighborOp source, PatternRewriter& rewriter) const
+      -> LogicalResult override {
+    if (source.getNeighborhood().size() <= 1) {
+      return rewriter.notifyMatchFailure(source,
+                                         "local neighborhood is trivial");
+    }
+    auto map = source.getMap();
+    auto results = llvm::to_vector(map.getResults());
+    const auto index = dyn_cast<AffineConstantExpr>(results.front());
+    if (!index) {
+      return rewriter.notifyMatchFailure(source, "selector is not constant");
+    }
+    if (index.getValue() < 0 || index.getValue() >= source->getNumOperands()) {
+      return rewriter.notifyMatchFailure(source, "selector is out of bounds");
+    }
+
+    results.erase(results.begin());
+    map = AffineMap::get(map.getNumDims(), 0, results, rewriter.getContext());
+    rewriter.modifyOpInPlace(source, [&]() {
+      source.setMap(map);
+      source->setOperands({source.getOperand(index.getValue())});
+    });
+    return success();
+  }
+};
+
+/// Replaces a neighbor with its neighborhood's invariant result values.
+struct ReplaceNeighbor : OpRewritePattern<NeighborOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  auto matchAndRewrite(NeighborOp source, PatternRewriter& rewriter) const
+      -> LogicalResult override {
+    if (source.getNeighborhood().size() != 1) {
+      return rewriter.notifyMatchFailure(source,
+                                         "local neighborhood is not trivial");
+    }
+    auto neighborhood =
+        source.getNeighborhood().front().getDefiningOp<NeighborhoodOp>();
+    if (!neighborhood ||
+        !neighborhood.getBody()->without_terminator().empty()) {
+      return rewriter.notifyMatchFailure(source, "neighborhood is not empty");
+    }
+    if (source.isDegenerate()) {
+      auto selector =
+          dyn_cast<AffineConstantExpr>(source.getMap().getResult(0));
+      if (!selector || selector.getValue() != 0) {
+        return rewriter.notifyMatchFailure(source, "selector is out of bounds");
+      }
+    }
+
+    rewriter.replaceOp(source,
+                       neighborhood.getBody()->getTerminator()->getOperands());
+    return success();
+  }
+};
+
+}  // namespace
+
+void NeighborOp::getCanonicalizationPatterns(RewritePatternSet& result,
+                                             MLIRContext* context) {
+  result.add<ResolveNeighbor, ReplaceNeighbor>(context);
+}
+
+auto NeighborOp::inferReturnTypes(
+    MLIRContext* /*context*/, std::optional<Location> /*location*/,
+    ValueRange operands, DictionaryAttr /*attributes*/,
+    OpaqueProperties /*properties*/, RegionRange /*regions*/,
+    SmallVectorImpl<Type>& inferred) -> LogicalResult {
+  if (operands.empty()) {
+    return failure();
+  }
+  const auto neighborhood_type =
+      dyn_cast<NeighborhoodType>(operands.front().getType());
+  if (!neighborhood_type) {
+    return failure();
+  }
+  for (auto value : operands.drop_front(1)) {
+    if (value.getType() != neighborhood_type) {
+      return failure();
+    }
+  }
+
+  inferred.assign(neighborhood_type.getResults());
   return success();
 }
