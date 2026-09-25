@@ -20,6 +20,10 @@
 
 #include <mlir/Interfaces/SideEffectInterfaces.h>
 
+#include <optional>
+
+#include "dataflow-scheduler/Dialect/KTDF/KTDFTypes.h"
+
 using namespace mlir;
 using namespace mlir::ktdf;
 
@@ -58,69 +62,24 @@ void inlineUnlinkedBlock(RewriterBase& rewriter, Block& source, Block& dest,
 
 }  // namespace
 
-PipelinePrivatizer::PipelinePrivatizer(RewriterBase& rewriter,
-                                       PipelineOp pipeline, bool force_recreate)
-    : rewriter_(rewriter),
+PipelinePrivatizer::PipelinePrivatizer(PipelineOp pipeline, bool force_recreate,
+                                       OpBuilder::Listener* listener)
+    : RewriterBase(pipeline->getContext(), listener),
       pipeline_(pipeline),
       existing_(pipeline.getPrivateOp()) {
   if (force_recreate && existing_) {
     // Erase the existing PrivateOp.
-    erasePrivateOp(rewriter_, existing_, private_);
+    erasePrivateOp(*this, existing_, private_);
     existing_ = nullptr;
   }
 }
 
-PipelinePrivatizer::~PipelinePrivatizer() {
-  if (private_.empty()) {
-    // Nothing was privated.
-    return;
-  }
-
-  // Erase the existing PrivateOp, if any.
-  if (existing_) {
-    erasePrivateOp(rewriter_, existing_, private_);
-  }
-
-  // Collect the values that need to be yielded from the new PrivateOp.
-  // This will re-discover the old results, since we redirected them.
-  SmallVector<Value> yield_values;
-  const auto should_yield = [&](Value value) -> bool {
-    return value.isUsedOutsideOfBlock(&private_);
-  };
-  for (auto& op : private_) {
-    llvm::append_range(yield_values,
-                       llvm::make_filter_range(op.getResults(), should_yield));
-  }
-
-  // Create the new PrivateOp.
-  OpBuilder::InsertionGuard guard(rewriter_);
-  rewriter_.setInsertionPointToStart(pipeline_.getBody());
-  auto target = mlir::ktdf::PrivateOp::create(
-      rewriter_, pipeline_->getLoc(), TypeRange(yield_values),
-      [&](OpBuilder& builder, Location loc) {
-        mlir::ktdf::PrivateYieldOp::create(builder, loc, yield_values);
-        inlineUnlinkedBlock(rewriter_, private_, *builder.getBlock(),
-                            builder.getBlock()->begin());
-      });
-
-  // Redirect all uses of the private values outside of the PrivateOp.
-  const auto is_outside_private = [&](OpOperand& use) -> bool {
-    return !target.getBodyRegion().isAncestor(
-        use.getOwner()->getParentRegion());
-  };
-  rewriter_.replaceUsesWithIf(yield_values, target->getResults(),
-                              is_outside_private);
-
-  // Erase all privated ops that are trivially dead.
-  target->walk([&](Operation* op) {
-    if (mlir::isOpTriviallyDead(op)) {
-      rewriter_.eraseOp(op);
+auto PipelinePrivatizer::isPrivate(Block* block) const -> bool {
+  while (block) {
+    if (existing_ && PrivateOp(existing_).getBody() == block) {
+      return true;
     }
-  });
-}
 
-auto PipelinePrivatizer::isPrivate(Block* block) -> bool {
-  while (block && block != existing_.getBody()) {
     auto* const parent = block->getParentOp();
     if (!parent) {
       break;
@@ -177,4 +136,70 @@ auto PipelinePrivatizer::makePrivate(Operation* op) -> LogicalResult {
   // NOTE: We don't use the rewriter here, we notify once during destroy.
   op->moveBefore(&private_, private_.end());
   return success();
+}
+
+auto PipelinePrivatizer::createToken(std::optional<Location> loc) -> Token {
+  InsertionGuard guard(*this);
+  setInsertionPointToEnd(&private_);
+  return CreateTokenOp::create(*this, loc.value_or(pipeline_.getLoc()));
+}
+
+auto PipelinePrivatizer::createFifo(ArrayRef<FifoSlotType> slots,
+                                    ValueRange dynamic_sizes,
+                                    std::optional<Location> loc) -> ValueRange {
+  InsertionGuard guard(*this);
+  setInsertionPointToEnd(&private_);
+  return FifoAllocateOp::create(*this, loc.value_or(pipeline_.getLoc()),
+                                ArrayRef<Type>(slots.data(), slots.size()),
+                                dynamic_sizes)
+      .getResults();
+}
+
+auto PipelinePrivatizer::finalize() -> PipelineOp {
+  if (private_.empty()) {
+    // Nothing was privated.
+    return pipeline_;
+  }
+
+  // Erase the existing PrivateOp, if any.
+  if (existing_) {
+    erasePrivateOp(*this, existing_, private_);
+  }
+
+  // Collect the values that need to be yielded from the new PrivateOp.
+  // This will re-discover the old results, since we redirected them.
+  SmallVector<Value> yield_values;
+  const auto should_yield = [&](Value value) -> bool {
+    return value.isUsedOutsideOfBlock(&private_);
+  };
+  for (auto& op : private_) {
+    llvm::append_range(yield_values,
+                       llvm::make_filter_range(op.getResults(), should_yield));
+  }
+
+  // Create the new PrivateOp.
+  InsertionGuard guard(*this);
+  setInsertionPointToStart(pipeline_.getBody());
+  existing_ = mlir::ktdf::PrivateOp::create(
+      *this, pipeline_->getLoc(), TypeRange(yield_values),
+      [&](OpBuilder& builder, Location loc) {
+        mlir::ktdf::PrivateYieldOp::create(builder, loc, yield_values);
+        inlineUnlinkedBlock(*this, private_, *builder.getBlock(),
+                            builder.getBlock()->begin());
+      });
+
+  // Redirect all uses of the private values outside of the PrivateOp.
+  const auto is_outside_private = [&](OpOperand& use) -> bool {
+    return !existing_.getBodyRegion().isAncestor(
+        use.getOwner()->getParentRegion());
+  };
+  replaceUsesWithIf(yield_values, existing_->getResults(), is_outside_private);
+
+  // Erase all privated ops that are trivially dead.
+  existing_->walk([&](Operation* op) {
+    if (mlir::isOpTriviallyDead(op)) {
+      eraseOp(op);
+    }
+  });
+  return pipeline_;
 }
