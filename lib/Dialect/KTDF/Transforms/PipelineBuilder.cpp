@@ -502,7 +502,13 @@ void PipelineBuilder::insert(ArrayRef<Operation*> ops, PlacementFn placement_fn,
     const auto placement = placement_fn(*this, op);
     if (!placement || failed(insert(op, placement))) {
       if (placement && placement.erase_on_failure) {
-        rewriter.eraseOp(placement.stage);
+        // A later placement for the same units must not find the erased stage.
+        auto stage = placement.stage;
+        if (auto units = stage.getApplicableUnitsAttr();
+            units && units_to_stage_.lookup(units) == stage) {
+          units_to_stage_.erase(units);
+        }
+        rewriter.eraseOp(stage);
       }
       continue;
     }
