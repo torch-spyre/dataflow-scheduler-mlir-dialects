@@ -8,6 +8,9 @@ add_dataflow_scheduler_dialects_library(DataflowSchedulerDialectsKTDFAnalysis
   GROUP DIALECT
   EXPORT_NAME KTDFAnalysis
 
+  DEPENDS
+    DataflowSchedulerDialectsKTDFIncGen
+
   LINK_LIBS
     DataflowSchedulerDialectsKTDFDialect
 )
