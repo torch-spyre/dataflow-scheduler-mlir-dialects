@@ -118,7 +118,7 @@ class Device : private DeviceOp {
     return getDeclaration().isImported();
   }
   [[nodiscard]] auto getDeclaration() const -> DeviceOp { return declaration_; }
-  [[nodiscard]] auto getDefinition() const -> DeviceOp { return *this; }
+  [[nodiscard]] auto getDefinition() const -> DeviceOp { return static_cast<const DeviceOp&>(*this); }
 
   [[nodiscard]] auto operator==(const Device& rhs) const -> bool {
     return declaration_ == rhs.declaration_;

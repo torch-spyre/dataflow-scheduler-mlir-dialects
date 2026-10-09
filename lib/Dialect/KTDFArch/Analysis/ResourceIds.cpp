@@ -55,7 +55,7 @@ auto ResourceIds::assign(Resource resource, StringAttr id) -> bool {
   if (id != nullptr) {
     // Can't override an identifier that is already in use by someone else.
     if (const auto existing = map_.lookup(id); existing) {
-      return existing == resource;
+      return Resource(existing) == resource;
     }
   }
 
@@ -131,7 +131,7 @@ auto ResourceIds::assignImpl(Resource resource, StringRef prefix)
   while (true) {
     id_attr = StringAttr::get(resource->getContext(), id);
     const auto existing = map_.lookup(id_attr);
-    if (existing == resource) {
+    if (Resource(existing) == resource) {
       // The resource already has an acceptable name.
       return id_attr;
     }

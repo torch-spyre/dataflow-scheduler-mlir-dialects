@@ -439,7 +439,7 @@ void SwitchOp::build(OpBuilder& builder, OperationState& state,
     connectivity = DenseIntElementsAttr::get(type, true);
   }
 
-  props.connectivity = connectivity;
+  props.connectivity = AdjacencyMatrixAttr(connectivity); 
 }
 
 auto SwitchOp::verify() -> LogicalResult {
