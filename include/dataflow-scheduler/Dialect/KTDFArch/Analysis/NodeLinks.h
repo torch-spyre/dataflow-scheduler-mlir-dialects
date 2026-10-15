@@ -203,7 +203,7 @@ auto visitLinks(Node source, Node target, NodeEndpoints& endpoints,
           return true;
         }
         for (auto value : link.getTargets()) {
-          if (endpoints.getNode(value) == target) {
+          if (Node(endpoints.getNode(value)) == target) {
             return invoke(link, direction);
           }
         }
