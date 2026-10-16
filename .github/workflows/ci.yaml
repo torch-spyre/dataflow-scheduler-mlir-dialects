@@ -42,7 +42,8 @@ jobs:
       - name: Install dependencies
         run: |
           # clang-21 from LLVM apt (matches project's recommended clang >= 21.0.0)
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+          curl -fsSL --proto '=https' --max-redirs 0 \
+            https://apt.llvm.org/llvm-snapshot.gpg.key \
             | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
           sudo add-apt-repository \
             "deb https://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main"
