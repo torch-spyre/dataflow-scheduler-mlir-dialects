@@ -374,6 +374,13 @@ auto MemoryOp::verify() -> LogicalResult {
     return emitOpError("attribute 'kind' requires valid memory space");
   }
 
+  if (const auto size = getSize(), reserved = getReserved();
+      size && reserved && reserved->sge(*size)) {
+    return emitOpError("attribute 'reserved' (")
+           << reserved->getSExtValue() << ") must be less than 'size' ("
+           << size->getSExtValue() << ")";
+  }
+
   return success();
 }
 

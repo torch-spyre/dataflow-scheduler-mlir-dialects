@@ -6,7 +6,18 @@ ktdf_arch.device @memory_invalid_size {
 }
 
 // -----
+ktdf_arch.device @memory_invalid_reserved {
+  // expected-error@+1 {{64-bit integer attribute whose minimum value is 0}}
+  memory {kind = "mem", reserved = -1}
+}
 
+// -----
+ktdf_arch.device @memory_reserved_exceeds_size {
+  // expected-error@+1 {{attribute 'reserved' (128) must be less than 'size' (128)}}
+  memory {kind = "mem", size = 128, reserved = 128}
+}
+
+// -----
 ktdf_arch.device @switch_invalid_connectivity {
   // expected-error@+1 {{directed sparse or dense adjacency matrix}}
   switch[3] {connectivity = []}

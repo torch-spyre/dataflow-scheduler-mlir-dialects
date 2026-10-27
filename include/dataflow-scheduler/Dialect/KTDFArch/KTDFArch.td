@@ -395,7 +395,10 @@ def KTDFArch_MemoryOp : KTDFArch_NodeOp<
   "memory", 
   KTDFArch_MemoryType, 
   [],
-  (ins OptionalAttr<ConfinedAttr<AnyI64Attr, [IntMinValue<1>]>>:$size)
+  (ins 
+    OptionalAttr<ConfinedAttr<AnyI64Attr, [IntMinValue<1>]>>:$size,
+    OptionalAttr<ConfinedAttr<AnyI64Attr, [IntMinValue<0>]>>:$reserved
+  )
 > {
   let summary = "Defines a memory resource.";
   let description = [{
@@ -413,11 +416,18 @@ def KTDFArch_MemoryOp : KTDFArch_NodeOp<
 
     Memories can have an optional `size` >= 1, specified in bytes.
 
+    Memories can also have an optional `reserved` >= 0, specified in bytes,
+    which is the amount of memory at the start of the memory that is unavailable
+    to the scheduler. It is therefore also the first address (relative to the
+    start of the memory) that the scheduler may use. If `size` is specified,
+    `reserved` must be less than `size`.
+
     Example:
     ```
     ktdf_arch.device @my_device {
       %ram = memory { kind = #ptr.generic_space }
       %ddr = memory { kind = "DDR", size = 17179869184 }
+      %hbm = memory { kind = "HBM", size = 17179869184, reserved = 128 }
     }
     ```
   }];
@@ -428,7 +438,8 @@ def KTDFArch_MemoryOp : KTDFArch_NodeOp<
   let builders = [
     OpBuilder<(ins 
         "KindAttr":$kind, 
-        CArg<"std::optional<int64_t>", "std::nullopt">:$size
+        CArg<"std::optional<int64_t>", "std::nullopt">:$size,
+        CArg<"std::optional<int64_t>", "std::nullopt">:$reserved
     ), [{
       auto& props = $_state.getOrAddProperties<Properties>();
       $_state.types.push_back(MemoryType::get($_builder.getContext()));
@@ -436,8 +447,31 @@ def KTDFArch_MemoryOp : KTDFArch_NodeOp<
       if (size) {
         props.size = $_builder.getI64IntegerAttr(*size);
       }
+      if (reserved) {
+        props.reserved = $_builder.getI64IntegerAttr(*reserved);
+      }
     }]>
   ];
+
+  let extraClassDeclaration = defaultOpAsmImpl # [{
+    /// Gets the first address, relative to the start of the memory, that is
+    /// available to the scheduler.
+    [[nodiscard]] auto getFirstAvailableAddress() -> int64_t {
+      if (const auto reserved = getReserved(); reserved) {
+        return reserved->getSExtValue();
+      }
+      return 0;
+    }
+
+    /// Gets the number of bytes available to the scheduler, if the size of
+    /// the memory is known.
+    [[nodiscard]] auto getAvailableSize() -> std::optional<int64_t> {
+      if (const auto size = getSize(); size) {
+        return size->getSExtValue() - getFirstAvailableAddress();
+      }
+      return std::nullopt;
+    }
+  }];
 }
 
 def KTDFArch_ExecutionUnitOp : KTDFArch_NodeOp<

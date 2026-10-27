@@ -35,7 +35,7 @@ class KTDFArch_ErasedAttr<Attr attr> : Attr<attr.predicate, attr.summary> {
   let cppFunctionName = attr.cppFunctionName;
   let storageType = "::mlir::Attribute";
   let returnType = attr.returnType;
-  let convertFromStorage = !subst("$_self", "::llvm::cast<" # attr.storageType # ">($_self)", attr.convertFromStorage);
+  let convertFromStorage = !subst("$_self", "::llvm::cast_if_present<" # attr.storageType # ">($_self)", attr.convertFromStorage);
   let constBuilderCall = !if(!eq(attr.constBuilderCall, "?"), "$0", attr.constBuilderCall);
   let defaultValue = attr.defaultValue;
   let valueType = attr.valueType;
