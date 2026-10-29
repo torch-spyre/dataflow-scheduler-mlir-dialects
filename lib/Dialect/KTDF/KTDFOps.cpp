@@ -226,13 +226,25 @@ auto TilingDeriveSizeOp::fold(FoldAdaptor adaptor) -> OpFoldResult {
     return {};
   }
 
-  // All three operands must be constant to fold to a constant.
-  auto iv_attr = llvm::dyn_cast_or_null<mlir::IntegerAttr>(adaptor.getIvs()[0]);
   auto ts_attr =
       llvm::dyn_cast_or_null<mlir::IntegerAttr>(adaptor.getTileSizes()[0]);
   auto total_attr =
       llvm::dyn_cast_or_null<mlir::IntegerAttr>(adaptor.getTotalSize());
-  if (!iv_attr || !ts_attr || !total_attr) {
+  if (!ts_attr || !total_attr) {
+    return {};
+  }
+
+  // When the total size is a non-zero multiple of the tile size there is no
+  // epilogue: every tile is full, whatever the iv, so the result is the tile
+  // size.
+  if (ts_attr.getInt() > 0 && total_attr.getInt() > 0 &&
+      total_attr.getInt() % ts_attr.getInt() == 0) {
+    return ts_attr;
+  }
+
+  // Otherwise the iv must be constant too to fold to a constant.
+  auto iv_attr = llvm::dyn_cast_or_null<mlir::IntegerAttr>(adaptor.getIvs()[0]);
+  if (!iv_attr) {
     return {};
   }
 
