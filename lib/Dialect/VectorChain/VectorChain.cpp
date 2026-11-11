@@ -198,6 +198,33 @@ LogicalResult CastOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// ShiftOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ShiftOp::verify() {
+  auto& op = *this;
+
+  if (op.getOp().getType() != op.getData().getType()) {
+    op->emitOpError("result type does not match input type");
+    return failure();
+  }
+  if (!isa<IntegerType>(dataflow::getElementType(op.getOp().getType()))) {
+    op->emitOpError("requires an integer element type");
+    return failure();
+  }
+  const int64_t width = dataflow::getElementTypeBitWidth(op.getOp().getType());
+  // getAmount() is unsigned for an I32Attr; the amount is signed.
+  const int64_t amount = op.getAmountAttr().getInt();
+  if (amount <= -width || amount >= width) {
+    op->emitOpError("amount ") << amount << " is out of range ["
+                               << -(width - 1) << ", " << width - 1
+                               << "] for the element type";
+    return failure();
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ShuffleOp
 //===----------------------------------------------------------------------===//
 
