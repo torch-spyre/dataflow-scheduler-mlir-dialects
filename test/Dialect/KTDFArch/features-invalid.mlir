@@ -70,6 +70,13 @@ ktdf_arch.device @simd_splat_not_unit {
 
 // -----
 
+ktdf_arch.device @simd_extract_not_unit {
+  // expected-error@+1 {{'extract' requires unit}}
+  exec_unit { ktdf_arch.features = { ktdf_arch.feature.simd = { extract = 1 } } }
+}
+
+// -----
+
 ktdf_arch.device @simd_zero_pad_not_unit {
   // expected-error@+1 {{'zero_pad' requires unit}}
   exec_unit { ktdf_arch.features = { ktdf_arch.feature.simd = { zero_pad = 1 } } }

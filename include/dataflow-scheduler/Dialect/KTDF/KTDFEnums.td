@@ -50,6 +50,7 @@ def KTDF_TransferModeEnum : I32EnumAttr<"TransferMode",
       I32EnumAttrCase<"Splat", 1, "splat">,
       I32EnumAttrCase<"ZeroPadFront", 2, "zero_pad_front">,
       I32EnumAttrCase<"ZeroPadBack", 3, "zero_pad_back">,
+      I32EnumAttrCase<"Extract", 4, "extract">,
     ]> {
   let cppNamespace = "::mlir::ktdf";
   let genSpecializedAttr = 0;

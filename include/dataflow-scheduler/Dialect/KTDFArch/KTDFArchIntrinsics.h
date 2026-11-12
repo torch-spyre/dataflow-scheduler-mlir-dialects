@@ -361,6 +361,7 @@ struct Load
 /// Indicates that the execution unit has SIMD lanes.
 struct SIMD : FeatureAttr<&KTDFArchDialect::getFeatureSIMDAttrName> {
   static constexpr StringLiteral kSplatAttrName = "splat";
+  static constexpr StringLiteral kExtractAttrName = "extract";
   static constexpr StringLiteral kZeroPadAttrName = "zero_pad";
   static constexpr StringLiteral kLanesAttrName = "lanes";
   static constexpr StringLiteral kSubSimdLanesAttrName = "sub_simd_lanes";
@@ -376,6 +377,11 @@ struct SIMD : FeatureAttr<&KTDFArchDialect::getFeatureSIMDAttrName> {
   /// Determines whether the unit can form splat vectors.
   [[nodiscard]] auto canSplat() const -> bool {
     return getAttr<UnitAttr>(kSplatAttrName) != nullptr;
+  }
+
+  /// Determines whether the unit can extract single elements from vectors.
+  [[nodiscard]] auto canExtract() const -> bool {
+    return getAttr<UnitAttr>(kExtractAttrName) != nullptr;
   }
 
   /// Determines whether the unit can pad vectors with zeros.

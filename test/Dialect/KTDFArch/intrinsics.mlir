@@ -44,7 +44,7 @@ ktdf_arch.device @my_device attributes {version = 1} {
           ]
         >
       },
-      ktdf_arch.feature.simd = { splat, zero_pad }
+      ktdf_arch.feature.simd = { splat, extract, zero_pad }
     }
   }
 

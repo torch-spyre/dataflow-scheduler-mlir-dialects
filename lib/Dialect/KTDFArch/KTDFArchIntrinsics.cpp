@@ -503,6 +503,12 @@ auto feature::SIMD::verify(EmitErrorFn emit_error) const -> LogicalResult {
     return emit_error() << "attribute '" << kSplatAttrName << "' requires unit";
   }
 
+  const auto extract = getAttr(kExtractAttrName);
+  if (extract && !isa<UnitAttr>(extract)) {
+    return emit_error() << "attribute '" << kExtractAttrName
+                        << "' requires unit";
+  }
+
   const auto zero_pad = getAttr(kZeroPadAttrName);
   if (zero_pad && !isa<UnitAttr>(zero_pad)) {
     return emit_error() << "attribute '" << kZeroPadAttrName
@@ -534,6 +540,10 @@ auto KTDFArchDialect::testFeatureSIMD(Attribute provided,
 
 auto feature::SIMD::test(feature::SIMD requirements) const -> bool {
   if (requirements.canSplat() && !canSplat()) {
+    return false;
+  }
+
+  if (requirements.canExtract() && !canExtract()) {
     return false;
   }
 
