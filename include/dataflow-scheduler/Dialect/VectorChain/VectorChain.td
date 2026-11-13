@@ -397,6 +397,32 @@ def VectorChain_NegOp:VectorChain_Op<"neg",
     }];
 }
 
+def VectorChain_ShiftOp:VectorChain_Op<"shift",
+  [NoMemoryEffect, IsolatedFromAbove, Dataflow_DebugNameOpInterface]> {
+    let summary = "Bit shift by a constant amount";
+    let description = [{
+    "This operation shifts the bits of every integer element of the input by
+    `amount`, a constant: right for a positive amount, left for a negative one,
+    the convention of the hardware shift. A right shift fills with the sign bit;
+    a left shift fills with zeros and drops the bits shifted out. For an element
+    type of width w the amount is in [-(w - 1), w - 1]: a shift by the full width
+    has no defined result."
+    ```mlir
+    %y = vectorchain.shift %x {amount = -3 : i32} : vector<32xi32>, vector<32xi32>
+    ```
+    }];
+
+    let arguments = (ins AnyVectorOfAnyRank:$op, I32Attr:$amount,
+                         Optional<VectorOfRankAndType<[1], [I1]>>:$mask,
+                         OptionalAttr<StrAttr>:$dbgName);
+
+    let results = (outs AnyVectorOfAnyRank:$data);
+    let assemblyFormat = [{
+          $op (`[` $mask^ `:` type($mask) `]`)?  attr-dict `:` type($op) `,` type(results)
+    }];
+    let hasVerifier = 1;
+}
+
 def VectorChain_MultiplyAndAccumulateOp:VectorChain_Op<"multiply_and_accumulate",
   [NoMemoryEffect, IsolatedFromAbove, Dataflow_DebugNameOpInterface]> {
     let summary = "Multiply and accumulate operation";
