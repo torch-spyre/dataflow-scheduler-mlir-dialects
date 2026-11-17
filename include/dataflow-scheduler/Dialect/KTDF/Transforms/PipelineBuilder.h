@@ -27,12 +27,6 @@
 
 #include "dataflow-scheduler/Dialect/KTDF/KTDF.h"
 
-namespace mlir {
-
-class DominanceInfo;
-
-}  // namespace mlir
-
 namespace mlir::ktdf {
 
 /// RAII helper that allows moving code to a PipelineOp.
@@ -40,6 +34,36 @@ namespace mlir::ktdf {
 /// Users may call `insert` on ops to attempt moving them into the pipeline.
 /// Some updating of the PipelineOp is deffered until the `build()` method is
 /// called or the helper is destroyed.
+///
+/// Ops are moved to the start of their stage, and users are moved before their
+/// producers, so the ops of each stage end up in program order. A value that
+/// crosses from a producer stage P to a consumer stage C is sent through a pair
+/// of a `ktdf.write_to_fifo` in P and a `ktdf.read_from_fifo` in C. All the
+/// pairs from P to C share one physical FIFO, so only the order of the ops
+/// links each value to its read. The builder places them as follows:
+///
+///  - The read goes at the top level of C, just before the earliest op that
+///    contains a user of the value. Reads therefore follow their users, and
+///    the reads for one op follow its operand order.
+///  - The write goes among the trailing writes of P, before the first write to
+///    C whose read comes after the new read. Writes therefore follow the reads.
+///    Writes to other stages are not ordered against these, and are kept in
+///    the order of their values where possible.
+///  - The Allocator is told which slots of the P->C writes come after the new
+///    write, so slots can follow the writes too.
+///
+/// None of this depends on the order in which ops are inserted or results are
+/// sent. The IR this builds, and every pass that runs after it, must keep these
+/// invariants:
+///
+///  I1. Each read runs under the same conditions, and the same number of times,
+///      as its paired write. No pass may move an existing read or write into or
+///      out of a conditional or loop. The builder only creates top-level pairs.
+///  I2. In each P->C sequence, the writes and the reads are in the same order.
+///  I3. In C, the reads are in the order of their users.
+///  I4. The slots in an allocation are in the order of their writes and reads.
+///  I5. Between two reads from P, there are only ops that don't wait on another
+///      unit, so that nothing can deadlock against P's next write.
 class PipelineBuilder : protected ImplicitLocOpBuilder {
  public:
   /// Controls the allocation of FIFO slots.
@@ -62,11 +86,17 @@ class PipelineBuilder : protected ImplicitLocOpBuilder {
     [[nodiscard]] virtual auto canAllocate(OpResult producer) const -> bool;
     /// Allocates a slot for @p producer .
     ///
+    /// @p later holds the slots of the writes from the producer's stage to
+    /// @p consumer that come after the new write, in write order. An allocator
+    /// that puts several slots in one allocation should place the new slot
+    /// before the first of them it owns, or last if it owns none, so that its
+    /// slots stay in write order.
+    ///
     /// This method may not fail when `canAllocate` previously returned `true`
     /// for the given @p producer .
     [[nodiscard]] virtual auto allocate(PipelineBuilder& builder,
-                                        OpResult producer, StageOp consumer)
-        -> FifoSlot;
+                                        OpResult producer, StageOp consumer,
+                                        ArrayRef<FifoSlot> later) -> FifoSlot;
   };
 
   /// Determines where an operation should be placed in the pipeline.
@@ -142,10 +172,6 @@ class PipelineBuilder : protected ImplicitLocOpBuilder {
   }
   /// Gets a builder for contained stages.
   [[nodiscard]] auto getStageBuilder() -> ImplicitLocOpBuilder { return *this; }
-  /// Gets an OpBuilder to insert reads into @p stage .
-  [[nodiscard]] auto getReadBuilder(StageOp stage) -> OpBuilder;
-  /// Gets an OpBuilder to insert writes into @p stage .
-  [[nodiscard]] auto getWriteBuilder(StageOp stage) -> OpBuilder;
 
   /// Builds the PipelineOp.
   ///
@@ -211,39 +237,6 @@ class PipelineBuilder : protected ImplicitLocOpBuilder {
   /// Gets the underlying FIFO allocator.
   [[nodiscard]] auto getAllocator() const -> Allocator& { return *allocator_; }
 
-  /// Adds a dependency on @p producer to @p consumer .
-  ///
-  /// @return Whether a new dependency was added.
-  virtual auto addDependency(StageOp producer, StageOp consumer) -> bool;
-  /// Adds a dependency between the stages of @p producer and @p consumer.
-  ///
-  /// @return Whether a new dependency was added.
-  auto addDependency(Operation* producer, Operation* consumer) -> bool;
-
-  /// Determines whether @p operand is available at its use.
-  [[nodiscard]] auto isAvailable(const OpOperand& operand) const -> bool;
-  /// Determines whether @p producer can be sent to another stage.
-  [[nodiscard]] auto canSend(OpResult producer) const -> bool;
-  /// Determines whether @p operand can be received from another stage.
-  [[nodiscard]] auto canReceive(const OpOperand& operand) const -> bool;
-
-  /// Sends @p producer to @p consumer via a FIFO and returns the read value.
-  ///
-  /// If @p producer is private, simply returns it (forwarding will be handled
-  /// by the PrivateBuilder on `build()` or destruction). Otherwise, a FIFO is
-  /// allocated, @p producer is written to it, and the result is read from it.
-  ///
-  /// @pre  `getPrivateBuilder().isPrivate(producer.getOwner()) ||
-  ///        canSend(producer)`
-  virtual auto send(OpResult producer, StageOp consumer) -> Value;
-  /// Receives @p operand via a FIFO if needed and updates @p operand .
-  ///
-  /// If @p operand is already available, does nothing. Otherwise, the value is
-  /// sent to the consumer stage and the operand is replaced with the read.
-  ///
-  /// @pre  `isAvailable(operand) || canReceive(operand)`
-  virtual void receive(OpOperand& operand);
-
   //===--------------------------------------------------------------------===//
   // Insertion & Placement
   //===--------------------------------------------------------------------===//
@@ -277,8 +270,11 @@ class PipelineBuilder : protected ImplicitLocOpBuilder {
   /// Runs a work list algorithm that attempts to put @p ops and all their
   /// transitive producers into the pipeline. Evalutes @p placement_fn for each
   /// eligible producer to determine the stage it should go to.
-  void insert(ArrayRef<Operation*> ops, PlacementFn placement_fn,
-              DominanceInfo& dominance);
+  ///
+  /// Each step takes the latest pending op in program order, so every op is
+  /// visited once, after all of its pending users. @p ops may be given in any
+  /// order.
+  void insert(ArrayRef<Operation*> ops, PlacementFn placement_fn);
 
  protected:
   explicit PipelineBuilder(PipelineOp pipeline, Allocator* allocator = nullptr,
@@ -288,6 +284,70 @@ class PipelineBuilder : protected ImplicitLocOpBuilder {
   DenseMap<ArrayAttr, StageOp> units_to_stage_;
   DenseMap<StageOp, Token> tokens_;
   Allocator* allocator_;
+
+ private:
+  //===--------------------------------------------------------------------===//
+  // FIFO Placement
+  //===--------------------------------------------------------------------===//
+
+  /// Gets an OpBuilder to move ops into @p stage .
+  ///
+  /// Ops go at the start of the stage, ahead of everything already there.
+  [[nodiscard]] auto getOpBuilder(StageOp stage) -> OpBuilder;
+  /// Gets an OpBuilder to insert a read of @p producer into @p consumer .
+  ///
+  /// The read goes at the top level of @p consumer , before the earliest op
+  /// that contains a user of @p producer , or at the end if there is none.
+  /// Reads that go before the same op follow the order of their first uses in
+  /// it.
+  [[nodiscard]] auto getReadBuilder(OpResult producer, StageOp consumer)
+      -> OpBuilder;
+  /// Gets an OpBuilder to insert a write of @p producer into its stage, paired
+  /// with a read inserted by @p read_builder into @p consumer .
+  ///
+  /// The write goes among the trailing writes of the stage, after the writes
+  /// to @p consumer whose read comes before the new read and before those
+  /// whose read comes after it. Within those bounds, it goes before the first
+  /// write of a value produced after @p producer , or as late as possible.
+  /// @p later receives the slots of the writes to @p consumer that come after
+  /// the new write, in order.
+  ///
+  /// @pre  `getStage(producer.getOwner())`
+  [[nodiscard]] auto getWriteBuilder(OpResult producer, StageOp consumer,
+                                     const OpBuilder& read_builder,
+                                     SmallVectorImpl<FifoSlot>& later)
+      -> OpBuilder;
+
+  /// Adds a dependency on @p producer to @p consumer .
+  ///
+  /// @return Whether a new dependency was added.
+  auto addDependency(StageOp producer, StageOp consumer) -> bool;
+
+  /// Determines whether @p operand is available at its use.
+  [[nodiscard]] auto isAvailable(const OpOperand& operand) const -> bool;
+  /// Determines whether @p producer can be sent to another stage.
+  [[nodiscard]] auto canSend(OpResult producer) const -> bool;
+  /// Determines whether @p operand can be received from another stage.
+  [[nodiscard]] auto canReceive(const OpOperand& operand) const -> bool;
+
+  /// Sends @p producer to @p consumer via a FIFO and returns the read value.
+  ///
+  /// If @p producer is private, simply returns it (forwarding will be handled
+  /// by the PrivateBuilder on `build()` or destruction). If @p consumer already
+  /// reads @p producer ahead of all its users there, returns that read.
+  /// Otherwise, a FIFO slot is allocated, @p producer is written to it, and the
+  /// result is read from it (see getReadBuilder and getWriteBuilder).
+  ///
+  /// @pre  `getPrivateBuilder().isPrivate(producer.getOwner()) ||
+  ///        canSend(producer)`
+  auto send(OpResult producer, StageOp consumer) -> Value;
+  /// Receives @p operand via a FIFO if needed and updates @p operand .
+  ///
+  /// If @p operand is already available, does nothing. Otherwise, the value is
+  /// sent to the consumer stage and the operand is replaced with the read.
+  ///
+  /// @pre  `isAvailable(operand) || canReceive(operand)`
+  void receive(OpOperand& operand);
 };
 
 }  // namespace mlir::ktdf

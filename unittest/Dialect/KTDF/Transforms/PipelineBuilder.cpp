@@ -21,7 +21,6 @@
 #include <doctest/doctest.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/Dominance.h>
 #include <mlir/IR/MLIRContext.h>
 
 #include "dataflow-scheduler/Dialect/KTDF/KTDF.h"
@@ -77,7 +76,6 @@ TEST_CASE("mlir::ktdf::PipelineBuilder") {
     auto* user_0 = create_user(producer->getResult(0));
     auto* user_1 = create_user(producer->getResult(1));
 
-    DominanceInfo dominance;
     PipelineBuilder pipeline_builder(builder, loc);
     const auto users_units = builder.getStringAttr("users");
     const auto producer_units = builder.getStringAttr("producer");
@@ -89,9 +87,9 @@ TEST_CASE("mlir::ktdf::PipelineBuilder") {
       return {pipeline_builder.tryPlacement(users_units).stage, false};
     };
 
-    pipeline_builder.insert({user_0}, place, dominance);
+    pipeline_builder.insert({user_0}, place);
     CHECK_FALSE(pipeline_builder.getStage(producer));
-    pipeline_builder.insert({user_1}, place, dominance);
+    pipeline_builder.insert({user_1}, place);
     CHECK(pipeline_builder.getStage(producer));
     CHECK(pipeline_builder.getStage(producer) ==
           pipeline_builder.getStage(producer_units));
